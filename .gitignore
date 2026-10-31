@@ -1,0 +1,6 @@
+build/
+.cache/
+*.log
+.DS_Store
+uploads/
+runtime/

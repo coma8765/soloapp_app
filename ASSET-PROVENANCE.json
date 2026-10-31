@@ -1,0 +1,24 @@
+{
+  "source": "WASD Playground / Godot 4.7.2",
+  "description": "One-time export of original generated geometry. No original files are loaded at runtime.",
+  "babylonVersion": "8.56.2",
+  "counts": {
+    "birches": 43,
+    "leaves": 37840,
+    "grassTufts": 18000,
+    "fish": 48
+  },
+  "sourceFiles": {
+    "scripts/world.gd": "de12e682664ab8419d2221726094f8721cbf5b2fefc853b89162055910eb74e7",
+    "scripts/birch_forest.gd": "dbc21c62fabae3906709d5a13aef5d9a134c61668aca324c65916bfb9ee3e67b",
+    "scripts/lake_fish.gd": "d81291e4e2e167fa1f446df44c343ad1c30ffd06e77f9ebebd87476aad284369",
+    "server/simulation.cpp": "292166de467d84f7e28007c69275d45cb9f855d8949a041a6f7b5bdf6f57445c",
+    "server/data/lakes.json": "ba5b508fd2f2bcdd09f46254e92aaf19b1ff622c529d79e54909e1e85cb8e373"
+  },
+  "assetSha256": {
+    "public/assets/world.json": "4e67af509df70d92e86548897cca7113d61cbc7b8b105ad284f9c3a8e2b8c773",
+    "public/assets/lakes.json": "ba5b508fd2f2bcdd09f46254e92aaf19b1ff622c529d79e54909e1e85cb8e373",
+    "public/vendor/babylon.js": "37c77bf920c0d7a3912c28a6120479f3d08fccd87a75e1f7558f76bd124cc6c4"
+  },
+  "instanceExport": "CPU placement matrices captured before MultiMesh upload; compatible with Godot headless dummy renderer."
+}

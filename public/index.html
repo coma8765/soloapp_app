@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#173038">
+  <title>MICRO / PLANET — Babylon.js</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%237ba15b'/%3E%3Cellipse cx='29' cy='29' rx='14' ry='9' fill='%232c6b70'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/client/style.css">
+  <script defer src="/vendor/babylon.js"></script>
+  <script type="module" src="/client/main.js"></script>
+</head>
+<body class="auth-required">
+  <canvas id="world" aria-label="Трёхмерная микропланета" tabindex="0"></canvas>
+  <div id="underwater"></div>
+  <header><div class="brand">MICRO <span>/</span> PLANET</div><div class="edition">СФЕРИЧЕСКИЙ МИР · BABYLON.JS</div></header>
+  <aside id="telemetry"><div class="live"><i></i><span id="connection">Подготовка мира…</span></div><div id="stats"></div><div id="players"></div><button id="reconnect">Переподключиться ↗</button></aside>
+  <div id="toolbar"><button id="fullscreen" aria-pressed="false">⛶ На весь экран</button><button id="quality" aria-pressed="true">Графика · высокая</button><button id="vr-quality" aria-pressed="false" title="Качество при следующем входе в VR">VR · плавно</button><button id="sound">M · Звук включён</button><button id="vr" disabled>Проверка WebXR…</button><button id="login">Войти</button><button id="logout" hidden>Выйти</button></div>
+  <div id="display-status" role="status"></div>
+  <main id="welcome"><div class="eyebrow">МАЛЕНЬКАЯ ПЛАНЕТА. БОЛЬШАЯ ПРОГУЛКА.</div><h1>Весь мир —<br>в нескольких шагах.</h1><p>Спуститесь к озеру, пройдите через берёзовую рощу<br>и вернитесь туда, откуда начали.</p><button id="explore" disabled>Загрузка мира…</button><div class="hint">WASD — идти · мышь — смотреть</div></main>
+  <div id="crosshair">+</div>
+  <footer><div id="location">Загрузка рельефа и моделей…</div><nav><button id="view">V <span>1-е / 3-е лицо</span></button><button id="overview">Tab <span>Вся планета</span></button><span>Esc · курсор</span></nav></footer>
+  <div id="fatal" role="alert" hidden></div>
+  <dialog id="auth-dialog" aria-labelledby="auth-title" aria-describedby="auth-description">
+    <form id="auth-form" novalidate>
+      <div class="auth-orbit" aria-hidden="true"><span></span></div>
+      <div class="eyebrow">MICRO / PLANET <span class="auth-local">ЛОКАЛЬНО</span></div>
+      <h2 id="auth-title">Присоединиться к миру</h2>
+      <p id="auth-description">Планета уже перед вами. Войдите, чтобы гулять вместе с другими.</p>
+      <label for="auth-email">Почта</label>
+      <input id="auth-email" name="email" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com" maxlength="254" required>
+      <label for="auth-password">Пароль</label>
+      <input id="auth-password" name="password" type="password" autocomplete="new-password" placeholder="Ваш пароль" minlength="8" maxlength="128" required aria-describedby="password-hint">
+      <small id="password-hint">Не менее 8 символов</small>
+      <p id="auth-error" role="alert" aria-live="polite"></p>
+      <button id="auth-submit" type="submit">Зарегистрироваться и войти</button>
+      <button id="auth-switch" type="button">Уже есть аккаунт? Войти</button>
+      <div class="auth-divider"></div>
+      <button id="auth-walk" type="button">Продолжить прогулку <span>↗</span></button>
+      <div class="auth-walk-hint">WASD + мышь · Esc — вернуться ко входу</div>
+    </form>
+  </dialog>
+</body>
+</html>

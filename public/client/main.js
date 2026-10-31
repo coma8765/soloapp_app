@@ -12,6 +12,7 @@ import {VisualQuality} from './quality.js';
 import {Lobby} from './lobby.js';
 import {GamepadControls} from './gamepad.js';
 import {WhiteRoom} from './white-room.js';
+import {LakeProfessors} from './lake-professors.js';
 import {setupFullscreen} from './fullscreen.js';
 const $=id=>document.getElementById(id);
 async function start(){
@@ -26,6 +27,7 @@ async function start(){
  const terrain=new Terrain(data),planet=new PlanetScene(scene,data),player=new Player(scene,terrain,planet,$('world'),preferences.id),fish=new FishView(scene,data.fishProfiles),sound=new NatureAudio(terrain);
  const quality=new VisualQuality(engine,scene,player,$('quality'));
  const room=new WhiteRoom(scene,player,planet,fish);
+ const professors=new LakeProfessors(scene,terrain,planet);
  let network,lobby,xr,authPanel,signingIn=false,loggingOut=false;
  async function signIn(message=''){
    if(authPanel?.settingsOpen)authPanel.closeSettings();
@@ -96,6 +98,7 @@ async function start(){
    document.body.classList.toggle('in-room',!!room.serverId);document.body.classList.toggle('counting-down',lobby.countdown);
    document.body.classList.toggle('lobby-open',!!auth.token&&authPanel.visible);$('servers').hidden=!auth.token;
    const camera=scene.activeCamera;camera.computeWorldMatrix();planet.update(dt,camera);
+   professors.update(dt,player,camera,!room.serverId);
    const underwater=!room.serverId&&!player.overview&&camera.globalPosition.length()<WATER_RADIUS;sound.update(player,underwater);
    $('underwater').style.display=underwater?'block':'none';document.body.classList.toggle('playing',(document.pointerLockElement===$('world')||gamepad.active&&!authPanel.visible)&&!player.overview);document.body.classList.toggle('overview',player.overview);
    if(now>hudAt){hudAt=now+250;fps=engine.getFps();$('connection').textContent=network.status+(network.id?' · #'+network.id:'');
@@ -116,6 +119,6 @@ async function start(){
    scene.render();
  });
  // Deliberate read-only diagnostics for local smoke tests and troubleshooting.
- window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,room};
+ window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,room,professors};
 }
 start().catch(error=>{console.error(error);$('fatal').hidden=false;$('fatal').textContent='Не удалось запустить мир\n'+error.message;$('welcome').hidden=true;});

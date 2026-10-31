@@ -24,7 +24,9 @@
     "public/vendor/babylonjs.loaders.min.js": "fb6e975962c8ed333e6ccefc4fe46eac9c5f989419e3347198e795b96e86c5b3",
     "public/assets/avatar/player-female.glb": "a1925ef139cd2c2a6d5af591b5ea9b7df14ef40cbe666cda2f587a5610c4ad18",
     "public/assets/avatar/uraraka-ochako.glb": "260ea1d80e24c3b97d732aa8247a4bc47cddd158b964251da2b6a605c1252b23",
-    "public/assets/avatar/URARAKA-LICENSE.txt": "9c654ce26c3d5da5e60e210fda5890897cc7c6313ede3e3615ba89924e80e7c0"
+    "public/assets/avatar/URARAKA-LICENSE.txt": "9c654ce26c3d5da5e60e210fda5890897cc7c6313ede3e3615ba89924e80e7c0",
+    "public/assets/professor/professor-einstein.glb": "ee0b1674d60d5dc464206108caa89d4f333c296e206b2670ac9ce27a9e3b3367",
+    "public/assets/professor/LICENSE.txt": "d7b4254cefd7255762f1e6f4d8d057665f55fa8b0e21f2d590ce9102ce88a987"
   },
   "instanceExport": "CPU placement matrices captured before MultiMesh upload; compatible with Godot headless dummy renderer.",
   "localAvatar": {
@@ -58,5 +60,17 @@
       "No skeleton or animations in the source; used as a static avatar."
     ],
     "reproduce": "python3 scripts/prepare-uraraka.py SOURCE.glb public/assets/avatar/uraraka-ochako.glb"
+  },
+  "lakeProfessor": {
+    "author": "klava88",
+    "source": "https://sketchfab.com/3d-models/professor-einstein-d1f7606bee9e425ab9393d3114ce9878",
+    "license": "CC-BY-4.0",
+    "licenseFile": "public/assets/professor/LICENSE.txt",
+    "sourceFile": "professor_einstein.glb (provided by user)",
+    "processing": [
+      "Original GLB preserved without modification.",
+      "Instanced at four dry shoreline sites; normalized to 1.9 m at runtime."
+    ],
+    "model": "public/assets/professor/professor-einstein.glb"
   }
 }

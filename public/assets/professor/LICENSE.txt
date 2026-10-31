@@ -1,0 +1,6 @@
+Professor Einstein by klava88 (https://sketchfab.com/klava88)
+Source: https://sketchfab.com/3d-models/professor-einstein-d1f7606bee9e425ab9393d3114ce9878
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Attribution copied from the user-supplied GLB asset.extras metadata.
+The GLB is unmodified. Runtime placement and scaling create four lake guides.

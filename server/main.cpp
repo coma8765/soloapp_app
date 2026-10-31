@@ -5,6 +5,7 @@
 #include "rtc_config.hpp"
 #include "local_rtc_relay.hpp"
 #include "lobby.hpp"
+#include "professor_http.hpp"
 #include <drogon/drogon.h>
 #include <drogon/WebSocketController.h>
 #include <rtc/rtc.hpp>
@@ -370,6 +371,7 @@ public:
 
 int main(int argc, char **argv) {
     int port = 3000;
+    int whisperPort = 8178;
     std::string navigation = "server/data/lakes.json";
     std::string webRoot = "public";
     std::string authPath = "runtime/auth.sqlite3";
@@ -379,6 +381,7 @@ int main(int argc, char **argv) {
         for (int i = 1; i < argc; ++i) {
             const std::string argument = argv[i];
             if (argument.rfind("--port=", 0) == 0) port = std::stoi(argument.substr(7));
+            else if (argument.rfind("--whisper-port=", 0) == 0) whisperPort = std::stoi(argument.substr(15));
             else if (argument.rfind("--nav=", 0) == 0) navigation = argument.substr(6);
             else if (argument.rfind("--web=", 0) == 0) webRoot = argument.substr(6);
             else if (argument.rfind("--auth-db=", 0) == 0) authPath = argument.substr(10);
@@ -386,6 +389,7 @@ int main(int argc, char **argv) {
             else throw std::runtime_error("Unknown argument: " + argument);
         }
         if (port < 1 || port > 65535) throw std::runtime_error("Invalid port");
+        if (whisperPort < 1 || whisperPort > 65535) throw std::runtime_error("Invalid Whisper port");
         if (!std::filesystem::exists(std::filesystem::path(webRoot) / "index.html")) throw std::runtime_error("Missing public/index.html");
         rtc::InitLogger(rtc::LogLevel::Warning);
         const auto relativeDb = std::filesystem::weakly_canonical(authPath).lexically_relative(std::filesystem::weakly_canonical(webRoot));
@@ -394,6 +398,7 @@ int main(int argc, char **argv) {
         LobbyStore lobby(authPath);
         installAuthRoutes(auth);
         installLobbyRoutes(auth, lobby);
+        installProfessorRoutes(whisperPort);
         if (!rtcConfigPath.empty()) {
             const auto relativeConfig = std::filesystem::weakly_canonical(rtcConfigPath).lexically_relative(std::filesystem::weakly_canonical(webRoot));
             if (!relativeConfig.empty() && *relativeConfig.begin() != "..") throw std::runtime_error("RTC config must be outside the public directory");

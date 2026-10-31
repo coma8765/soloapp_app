@@ -15,6 +15,7 @@ import {WhiteRoom} from './white-room.js';
 import {LakeProfessors} from './lake-professors.js';
 import {MarineLife} from './marine.js';
 import {ProfessorRecorder} from './professor-recorder.js';
+import {Laboratory} from './laboratory.js';
 import {setupFullscreen} from './fullscreen.js';
 const $=id=>document.getElementById(id);
 async function start(){
@@ -35,6 +36,7 @@ async function start(){
  const professors=new LakeProfessors(scene,terrain,planet,professorRecorder);
  window.addEventListener('pagehide',()=>professorRecorder.clear());
  document.addEventListener('visibilitychange',()=>syncProfessorVoice());
+ const laboratory=new Laboratory(scene,terrain,planet,professors);player.structures.push(laboratory);
  let network,lobby,xr,authPanel,signingIn=false,loggingOut=false;
  async function signIn(message=''){
    if(authPanel?.settingsOpen)authPanel.closeSettings();
@@ -111,6 +113,7 @@ async function start(){
    const camera=scene.activeCamera;camera.computeWorldMatrix();planet.update(dt,camera);
    professors.update(dt,player,camera,!room.serverId);
    marine.update(dt);
+   laboratory.update(player.position);
    const underwater=!room.serverId&&!player.overview&&camera.globalPosition.length()<WATER_RADIUS;sound.update(player,underwater);
    $('underwater').style.display=underwater?'block':'none';document.body.classList.toggle('playing',(document.pointerLockElement===$('world')||gamepad.active&&!authPanel.visible)&&!player.overview);document.body.classList.toggle('overview',player.overview);
    if(now>hudAt){hudAt=now+250;fps=engine.getFps();$('connection').textContent=network.status+(network.id?' · #'+network.id:'');
@@ -131,6 +134,6 @@ async function start(){
    scene.render();
  });
  // Deliberate read-only diagnostics for local smoke tests and troubleshooting.
- window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,room,professors,marine,professorRecorder};
+ window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,room,professors,marine,professorRecorder,laboratory};
 }
 start().catch(error=>{console.error(error);$('fatal').hidden=false;$('fatal').textContent='Не удалось запустить мир\n'+error.message;$('welcome').hidden=true;});

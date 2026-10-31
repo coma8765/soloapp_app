@@ -11,6 +11,8 @@ export class MarineCard {
     this.mesh.applyFog = false;
     this.texture = new B.DynamicTexture('Marine information text', { width: WIDTH * 2, height: HEIGHT * 2 }, scene, true);
     this.texture.hasAlpha = true; this.texture.anisotropicFilteringLevel = 8;
+    // Even a hidden card must have an uploaded texture for scene.whenReadyAsync().
+    this.texture.update();
     const material = new B.StandardMaterial('Marine information material', scene);
     material.diffuseTexture = this.texture; material.useAlphaFromDiffuseTexture = true;
     material.emissiveColor = B.Color3.White(); material.disableLighting = true; material.backFaceCulling = false;

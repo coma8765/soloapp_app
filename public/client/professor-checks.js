@@ -9,7 +9,12 @@ try {
   const terrain = new Terrain(data), planet = new PlanetScene(scene, data), professors = new LakeProfessors(scene, terrain, planet);
   const camera = new B.FreeCamera('professor-test-camera', vec(terrain.spawn()), scene); camera.minZ = .05;
   scene.activeCamera = camera;
-  check(await professors.ready && professors.guides.length === 4, 'У каждого из четырёх озёр есть профессор');
+  check(await professors.ready && professors.sites.length === 4, 'У каждого из четырёх озёр есть место профессора');
+  for (const site of professors.sites) {
+    professors.update(0, { position: vec(site.position) }, camera);
+    await site.loading;
+  }
+  check(professors.guides.length === 4, 'Профессора загружены после посещения всех берегов');
   for (const guide of professors.guides) {
     check(guide.root.position.length() > WATER_RADIUS && Math.abs(guide.root.position.length() - terrain.radius(guide.up) - .02) < .001,
       `Озеро ${guide.id + 1}: профессор на сухом берегу и на поверхности`);

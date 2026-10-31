@@ -16,7 +16,11 @@ try {
   engine.stopRenderLoop();
   app.quality.high = false; app.quality.apply();
   planet.grass.setEnabled(false); planet.leaves.setEnabled(false); planet.shadowMap.renderList = [];
-  check(await marine.ready, 'Обе GLB-модели загружены без ошибок');
+  check(await marine.ready, 'Карта озёр загружена');
+  for (const lake of marine.lakes) {
+    scene.activeCamera.position.copyFrom(lake.up.scale(36.8)); scene.activeCamera.computeWorldMatrix(true);
+    marine.update(0); check(await lake.loading, 'Модели загружены при приближении к озеру ' + (lake.index + 1));
+  }
   check(marine.entities.length === 16, 'В четырёх озёрах по три рыбы-клоуна и одному омару');
   check(marine.entities.every(e => e.entries.animationGroups.length && e.entries.skeletons.length), 'Сохранены скелеты и анимации всех животных');
   win.document.getElementById('auth-dialog').close();

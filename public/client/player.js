@@ -6,7 +6,7 @@ const B=window.BABYLON;
 export class Player {
  constructor(scene,terrain,planet,canvas,avatarId){
    this.inputEnabled=true;
-   this.worldMap='planet';this.roomColliders=[];
+   this.worldMap='planet';this.roomColliders=[];this.structures=[];
    this.scene=scene;this.terrain=terrain;this.planet=planet;this.canvas=canvas;this.position=vec(terrain.spawn());this.forward=new B.Vector3(0,0,-1);this.pitch=-.18;this.radialSpeed=0;this.keys=new Set();this.third=false;this.overview=false;this.xr=false;this.angle=.6;this.speed=0;this.rotation=B.Quaternion.Identity();
    this.camera=new B.FreeCamera('player-view',this.position.clone(),scene);this.camera.inputs.clear();this.camera.minZ=.05;this.camera.maxZ=400;this.camera.fov=75*Math.PI/180;this.camera.rotationQuaternion=B.Quaternion.Identity();this.camera.updateUpVectorFromRotation=true;
    this.overviewCamera=new B.FreeCamera('overview',new B.Vector3(60,65,70),scene);this.overviewCamera.inputs.clear();this.overviewCamera.minZ=.1;this.overviewCamera.maxZ=400;this.overviewCamera.fov=55*Math.PI/180;
@@ -55,7 +55,9 @@ export class Player {
      const tangent=offset.subtract(axis.scale(height)),d=tangent.length();
      if(d<.53){const outward=d>.001?tangent.scale(1/d):B.Vector3.Cross(axis,B.Vector3.Right()).normalize();next.addInPlace(outward.scale(.53-d));}
    }
-   u=next.normalizeToNew();const floor=this.terrain.radius(u.asArray())+.06;
+   for(const structure of this.structures)next=structure.resolveMovement(next);
+   u=next.normalizeToNew();let floor=this.terrain.radius(u.asArray())+.06;
+   for(const structure of this.structures){const surface=structure.groundRadius(u);if(surface!==null)floor=Math.max(floor,surface+.06);}
    let radius=next.length();
    this.radialSpeed-= (depth>.5?8:18)*dt;
    radius+=this.radialSpeed*dt;
@@ -70,7 +72,7 @@ export class Player {
    if(!this.xr){
      this.camera.position.copyFrom(eye);
      if(this.third){
-       const back=look.negate(),ray=new B.Ray(eye,back,4),hit=this.scene.pickWithRay(ray,m=>flat?this.roomColliders.includes(m):m===this.planet.terrain||m===this.planet.bark);
+       const back=look.negate(),ray=new B.Ray(eye,back,4),hit=this.scene.pickWithRay(ray,m=>flat?this.roomColliders.includes(m):m===this.planet.terrain||m===this.planet.bark||this.structures.some(s=>s.visible&&s.colliders.includes(m)));
        let distance=hit?.hit?Math.max(.15,hit.distance-.2):4;
        // Sample the camera arm as a small sphere to keep the near plane out of slopes.
        for(let d=.15;d<distance;d+=.1){const p=eye.add(back.scale(d));if(flat?(p.y<.2||p.y>5.8||Math.abs(p.x)>11.8||Math.abs(p.z)>11.8):p.length()<this.terrain.radius(p.asArray())+.2){distance=Math.max(.15,d-.1);break;}}

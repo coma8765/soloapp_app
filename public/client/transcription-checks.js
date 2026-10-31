@@ -13,7 +13,9 @@ try {
   const recorder=new ProfessorRecorder(), professors=new LakeProfessors(scene,terrain,planet,recorder);
   const voice=new VoiceChat(()=>{void recorder.setVoiceStream(voice.stream);}); voice.localAllowed=true;
   const camera=new B.FreeCamera('speech-test-camera',vec(terrain.spawn()),scene); scene.activeCamera=camera; camera.minZ=.05;
-  check(await professors.ready,'Модели и 3D-панели загружены');
+  check(await professors.ready,'Координаты профессоров загружены');
+  professors.update(0,{position:vec(professors.sites[0].position)},camera);
+  check(await professors.sites[0].loading,'Модель и 3D-панель загружены при приближении');
   const guide=professors.guides[0], up=vec(guide.up), forward=vec(guide.forward);
   camera.position.copyFrom(guide.root.position.add(forward.scale(5.8)).add(up.scale(2.8)));
   const direction=guide.root.position.add(up.scale(2)).subtract(camera.position).normalize();

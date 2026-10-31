@@ -6,55 +6,64 @@ export class LakeProfessors {
   constructor(scene, terrain, planet, recorder = null) {
     Object.assign(this, { scene, terrain, planet, recorder });
     this.guides = []; this.visible = true; this.nearest = null; this.error = null;
-    this.ready = this.load();
+    this.sites = []; this.ready = this.loadSites();
   }
-  async load() {
+  async loadSites() {
     try {
       const response = await fetch('/assets/lakes.json');
       if (!response.ok) throw Error('Не удалось загрузить берега озёр');
       const navigation = await response.json();
-      const sites = lakeProfessorSites(this.terrain, navigation.lakes, this.planet.trees.map(tree => tree.asArray()));
-      this.container = await B.LoadAssetContainerAsync('/assets/professor/professor-einstein.glb', this.scene);
-      this.container.addAllToScene();
-      const template = new B.TransformNode('professor-template', this.scene);
-      for (const node of this.container.rootNodes) node.parent = template;
-      const bounds = template.getHierarchyBoundingVectors(true), height = bounds.max.y - bounds.min.y;
-      if (!Number.isFinite(height) || height <= 0) throw Error('Некорректная модель профессора');
-      const scale = 1.9 / height;
-      template.scaling.setAll(scale);
-      template.position.set(-(bounds.min.x + bounds.max.x) * scale / 2, -bounds.min.y * scale, -(bounds.min.z + bounds.max.z) * scale / 2);
-      this.template = template;
-      for (const site of sites) {
-        const root = new B.TransformNode('lake-professor-' + site.id, this.scene);
-        root.position.copyFrom(vec(site.position)); root.rotationQuaternion = orientation(vec(site.forward), vec(site.up));
-        // Authored glTF faces +Z; player-facing directions use local -Z.
-        const facing = new B.TransformNode('professor-facing-' + site.id, this.scene);
-        facing.parent = root; facing.rotation.y = Math.PI;
-        const model = template.clone('professor-model-' + site.id, facing);
-        for (const mesh of model.getChildMeshes()) mesh.isPickable = false;
-        const sign = B.MeshBuilder.CreatePlane('professor-sign-' + site.id, this.recorder ? { width: 2.8, height: 2.1 } : { width: 2.4, height: .8 }, this.scene);
-        sign.position.copyFrom(root.position.add(vec(site.up).scale(this.recorder ? 3.1 : 2.45)));
-        sign.rotationQuaternion = B.Quaternion.Identity(); sign.isPickable = false;
-        const texture = new B.DynamicTexture('professor-sign-texture-' + site.id, { width: 1024, height: this.recorder ? 768 : 342 }, this.scene, true);
-        texture.hasAlpha = true;
-        const material = new B.StandardMaterial('professor-sign-material-' + site.id, this.scene);
-        material.diffuseTexture = texture; material.emissiveColor = B.Color3.White();
-        material.disableLighting = true; material.backFaceCulling = false;
-        sign.material = material;
-        const guide = { ...site, root, model, sign, texture, near: false, state: '' };
-        this.guides.push(guide); this.draw(guide);
-      }
-      template.setEnabled(false);
-      this.setVisible(this.visible);
+      this.sites = lakeProfessorSites(this.terrain, navigation.lakes, this.planet.trees.map(tree => tree.asArray()));
+      return true;
+    } catch (error) { this.error = error; console.warn('Lake sites:', error); return false; }
+  }
+  async loadTemplate() {
+    this.container = await B.LoadAssetContainerAsync('/assets/professor/professor-einstein.glb', this.scene);
+    this.container.addAllToScene();
+    const template = new B.TransformNode('professor-template', this.scene);
+    for (const node of this.container.rootNodes) node.parent = template;
+    const bounds = template.getHierarchyBoundingVectors(true), height = bounds.max.y - bounds.min.y;
+    if (!Number.isFinite(height) || height <= 0) throw Error('Некорректная модель профессора');
+    const scale = 1.9 / height;
+    template.scaling.setAll(scale);
+    template.position.set(-(bounds.min.x + bounds.max.x) * scale / 2, -bounds.min.y * scale, -(bounds.min.z + bounds.max.z) * scale / 2);
+    this.template = template;
+    template.setEnabled(false);
+    return template;
+  }
+  async loadGuide(site) {
+    try {
+      this.loading ||= this.loadTemplate();
+      const template = await this.loading;
+      const root = new B.TransformNode('lake-professor-' + site.id, this.scene);
+      root.position.copyFrom(vec(site.position)); root.rotationQuaternion = orientation(vec(site.forward), vec(site.up));
+      // Authored glTF faces +Z; player-facing directions use local -Z.
+      const facing = new B.TransformNode('professor-facing-' + site.id, this.scene);
+      facing.parent = root; facing.rotation.y = Math.PI;
+      const model = template.clone('professor-model-' + site.id, facing);
+      model.setEnabled(true);
+      for (const mesh of model.getChildMeshes()) mesh.isPickable = false;
+      const sign = B.MeshBuilder.CreatePlane('professor-sign-' + site.id, this.recorder ? { width: 2.8, height: 2.1 } : { width: 2.4, height: .8 }, this.scene);
+      sign.position.copyFrom(root.position.add(vec(site.up).scale(this.recorder ? 3.1 : 2.45)));
+      sign.rotationQuaternion = B.Quaternion.Identity(); sign.isPickable = false;
+      const texture = new B.DynamicTexture('professor-sign-texture-' + site.id, { width: 1024, height: this.recorder ? 768 : 342 }, this.scene, true);
+      texture.hasAlpha = true;
+      const material = new B.StandardMaterial('professor-sign-material-' + site.id, this.scene);
+      material.diffuseTexture = texture; material.emissiveColor = B.Color3.White();
+      material.disableLighting = true; material.backFaceCulling = false;
+      sign.material = material;
+      const guide = { ...site, root, model, sign, texture, near: false, state: '', site };
+      this.guides.push(guide); this.draw(guide);
+      root.setEnabled(false); sign.setEnabled(false);
       return true;
     } catch (error) {
-      this.error = error; this.container?.dispose(); this.template?.dispose();
+      this.error = error;
       console.warn('Lake professors:', error.message); return false;
     }
   }
   setVisible(visible) {
     this.visible = visible;
-    for (const guide of this.guides) { guide.root.setEnabled(visible); guide.sign.setEnabled(visible); }
+    for (const guide of this.guides) { guide.root.setEnabled(visible && !!guide.site.active); guide.sign.setEnabled(visible && !!guide.site.active); }
     if (!visible) this.nearest = null;
   }
   draw(guide) {
@@ -101,9 +110,15 @@ export class LakeProfessors {
   update(dt, player, camera, visible = true) {
     if (visible !== this.visible) this.setVisible(visible);
     this.nearest = null;
+    for (const site of this.sites) {
+      site.active = visible && B.Vector3.Distance(player.position, vec(site.position)) < (site.active ? 30 : 24);
+      if (site.active && !site.loading) site.loading = this.loadGuide(site);
+    }
     if (!visible) { this.recorder?.setTarget(null); return; }
     let closest = Infinity;
     for (const guide of this.guides) {
+      guide.root.setEnabled(!!guide.site.active); guide.sign.setEnabled(!!guide.site.active);
+      if (!guide.site.active) { guide.near = false; continue; }
       const delta = player.position.subtract(guide.root.position), distance = delta.length();
       // Hysteresis avoids flickering greetings at the distance threshold.
       guide.near = distance < (guide.near ? 6.5 : 5.5);

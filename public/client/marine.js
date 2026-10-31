@@ -7,7 +7,7 @@ const B = window.BABYLON;
 export class MarineLife {
   constructor(scene, terrain, planet, player, canvas, panel, xr, gamepad) {
     Object.assign(this, { scene, terrain, planet, player, canvas, panel, xr, gamepad });
-    this.entities = []; this.exhibits = []; this.containers = []; this.errors = [];
+    this.entities = []; this.exhibits = []; this.containers = []; this.errors = []; this.models = new Map();
     this.card = new MarineCard(scene); this.pointer = null;
     this.ready = this.load();
     canvas.addEventListener('pointermove', event => {
@@ -31,19 +31,27 @@ export class MarineLife {
       if (!response.ok) throw Error('Карты озёр недоступны');
       const data = await response.json();
       this.lakes = data.lakes.map((lake, index) => ({ index, up: vec(lake.up), side: vec(lake.side), tangent: vec(lake.tangent) }));
-      for (const lake of this.lakes) this.createExhibit(lake);
-      // Load once per species; clones share geometry, textures and materials.
-      for (const species of MARINE_SPECIES) {
-        try {
-          const container = await B.LoadAssetContainerAsync(species.model, this.scene);
-          this.containers.push(container);
-          for (const material of container.materials) {
-            if (material instanceof B.PBRMaterial) { material.metallic = 0; material.roughness = .68; material.environmentIntensity = .7; }
-          }
-          for (const lake of this.lakes) for (let slot = 0; slot < species.count; slot++) this.createAnimal(container, species, lake, slot);
-        } catch (error) { this.errors.push(species.name); console.warn('Marine model:', species.id, error); }
-      }
     } catch (error) { this.errors.push('озёра'); console.warn('Marine exhibit:', error); }
+    return this.errors.length === 0;
+  }
+
+  async loadLake(lake) {
+    this.createExhibit(lake);
+    for (const species of MARINE_SPECIES) {
+      try {
+        // One request per species, including simultaneous approaches to two lakes.
+        if (!this.models.has(species.id)) this.models.set(species.id, B.LoadAssetContainerAsync(species.model, this.scene).then(container => {
+          this.containers.push(container);
+          for (const material of container.materials) if (material instanceof B.PBRMaterial) { material.metallic = 0; material.roughness = .68; material.environmentIntensity = .7; }
+          return container;
+        }));
+        const container = await this.models.get(species.id);
+        for (let slot = 0; slot < species.count; slot++) this.createAnimal(container, species, lake, slot);
+      } catch (error) {
+        if (!this.errors.includes(species.name)) this.errors.push(species.name);
+        console.warn('Marine model:', species.id, error);
+      }
+    }
     return this.errors.length === 0;
   }
 
@@ -82,6 +90,7 @@ export class MarineLife {
 
   createExhibit(lake) {
     const root = new B.TransformNode('Lake habitat ' + lake.index, this.scene);
+    root.setEnabled(false);
     const sand = new B.StandardMaterial('Pale underwater stones ' + lake.index, this.scene);
     sand.diffuseColor = new B.Color3(.36, .44, .39); sand.specularColor.set(.05, .05, .05);
     const green = new B.StandardMaterial('Marine plants ' + lake.index, this.scene);
@@ -149,9 +158,14 @@ export class MarineLife {
 
   update(dt) {
     const camera = this.scene.activeCamera, now = performance.now();
-    for (const exhibit of this.exhibits) exhibit.root.setEnabled(this.planet.visible && B.Vector3.Distance(camera.globalPosition, exhibit.lake.up.scale(WATER_RADIUS)) < 26);
+    for (const lake of this.lakes || []) {
+      const distance = B.Vector3.Distance(camera.globalPosition, lake.up.scale(WATER_RADIUS));
+      lake.active = this.planet.visible && distance < (lake.active ? 30 : 24);
+      if (lake.active && !lake.loading) lake.loading = this.loadLake(lake);
+    }
+    for (const exhibit of this.exhibits) exhibit.root.setEnabled(!!exhibit.lake.active);
     for (const entity of this.entities) {
-      const active = this.planet.visible && B.Vector3.Distance(camera.globalPosition, entity.lake.up.scale(WATER_RADIUS)) < 24;
+      const active = !!entity.lake.active;
       if (active !== entity.active) {
         entity.active = active; entity.root.setEnabled(active);
         for (const group of entity.entries.animationGroups) active ? group.play(true) : group.pause();

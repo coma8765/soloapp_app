@@ -15,4 +15,9 @@
 .lobby-open #welcome,.in-room #welcome{display:none}
 .counting-down #toolbar,.counting-down footer,.counting-down aside,.counting-down #crosshair{visibility:hidden;pointer-events:none}
 
+#marine-status{position:fixed;left:32px;bottom:78px;max-width:380px;padding:9px 13px;border:1px solid #bde5d144;border-radius:8px;background:#102c32d9;color:#d6eee1;font-size:12px;pointer-events:none}
+.in-vr #marine-status,.lobby-open #marine-status,.settings-open #marine-status{display:none}
+.visually-hidden{position:fixed;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(max-width:750px){#marine-status{left:18px;bottom:135px;max-width:calc(100vw - 36px);font-size:10px}}
+
 #gamepad-status{position:fixed;z-index:3;left:50%;bottom:78px;transform:translateX(-50%);max-width:90vw;padding:9px 14px;border:1px solid #bde5d144;border-radius:8px;background:#102c32e8;color:#d6eee1;font-size:12px;text-align:center;pointer-events:none}.in-vr #gamepad-status{display:none}@media(max-width:750px){#gamepad-status{bottom:104px;font-size:10px;width:max-content}}

@@ -13,7 +13,7 @@ export class XRView {
      this.helper.sessionManager.onXRSessionInit.add(session=>{
        session.addEventListener('select',event=>this.authPanel?.selectXR(event,this.helper.sessionManager.referenceSpace,this.origin));
      });
-     this.helper.sessionManager.onXRFrameObservable.add(frame=>this.authPanel?.updateXR(frame,this.helper.sessionManager.referenceSpace,this.origin));
+     this.helper.sessionManager.onXRFrameObservable.add(frame=>{this.authPanel?.updateXR(frame,this.helper.sessionManager.referenceSpace,this.origin);this.marine?.updateXR(frame,this.helper.sessionManager.referenceSpace,this.origin);});
      this.helper.onStateChangedObservable.add(state=>{
        if(state===B.WebXRState.IN_XR)this.enter();
        if(state===B.WebXRState.NOT_IN_XR)this.exit();

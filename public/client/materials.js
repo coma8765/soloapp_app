@@ -42,7 +42,7 @@ float detail=valueNoise(vPosition*5.)*.55+valueNoise(vPosition*19.)*.3+valueNois
 vec3 color;
 if(kind==0.){
  vec3 grass=mix(vec3(.19,.34,.12),vec3(.40,.51,.23),smoothstep(.4,2.6,e));
- vec3 sand=vec3(.58,.53,.34),mud=vec3(.22,.29,.20),rock=vec3(.40,.42,.35);
+ vec3 sand=vec3(.66,.61,.43),mud=vec3(.34,.43,.34),rock=vec3(.40,.42,.35);
  color=mix(mud,sand,smoothstep(-1.8,.05,e));color=mix(color,grass,smoothstep(.05,.65,e));
  float slope=1.-abs(dot(n,normalize(vPosition)));color=mix(color,rock,smoothstep(.12,.4,slope));
  color*=.72+detail*.62;
@@ -105,11 +105,11 @@ export function waterMaterial(scene){
  float fresnel=.02+.98*pow(1.-max(0.,dot(n,view)),5.);
  float noise=valueNoise(p*.6+time*.025),wash=.5+.5*sin(depth*20.-time*1.7+noise*5.);
  foam+=(1.-smoothstep(.04,.38,depth))*smoothstep(.38,.66,noise+wash*.15)*.65;foam=clamp(foam,0.,.7);
- vec3 color=mix(vec3(.075,.26,.22),vec3(.012,.085,.11),1.-exp(-depth*.65));
+ vec3 color=mix(vec3(.10,.40,.37),vec3(.02,.17,.22),1.-exp(-depth*.55));
  color=mix(color,vec3(.64,.78,.84),fresnel*.8);
  float spec=pow(max(0.,dot(reflect(-normalize(vec3(-.5,1.,.4)),n),view)),100.);
  color+=vec3(1.,.95,.8)*spec*.75;color=mix(color,vec3(.72,.79,.71),foam);
- float alpha=clamp(mix((1.-exp(-depth*.85))*.72+.08,.96,fresnel)+foam*.5,.08,.98);
+ float alpha=clamp(mix((1.-exp(-depth*.55))*.44+.06,.90,fresnel)+foam*.5,.06,.96);
  if(length(cameraPosition)<36.8){alpha=.38+fresnel*.5;color*=vec3(.55,.8,.85);}
  gl_FragColor=vec4(color,alpha);}`;
  const m=new B.ShaderMaterial('lake-water',scene,{vertexSource:vert,fragmentSource:frag},{attributes:['position','normal','uv'],uniforms:['worldViewProjection','time','cameraPosition','ripples','strengths'],needAlphaBlending:true});

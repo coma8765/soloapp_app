@@ -13,6 +13,7 @@ import {Lobby} from './lobby.js';
 import {GamepadControls} from './gamepad.js';
 import {WhiteRoom} from './white-room.js';
 import {LakeProfessors} from './lake-professors.js';
+import {MarineLife} from './marine.js';
 import {setupFullscreen} from './fullscreen.js';
 const $=id=>document.getElementById(id);
 async function start(){
@@ -78,6 +79,7 @@ async function start(){
  authPanel=new AccountPanel(scene,auth,player,$('world'),explore,preferences);authPanel.lobby=lobby;xr.authPanel=authPanel;
  $('settings').onclick=()=>authPanel.openSettings();
  const gamepad=new GamepadControls(player,authPanel,xr,$('gamepad-status'));
+ const marine=new MarineLife(scene,terrain,planet,player,$('world'),authPanel,xr,gamepad);xr.marine=marine;
  $('servers').onclick=()=>{if(authPanel.settingsBusy||lobby.countdown)return;authPanel.closeSettings();document.exitPointerLock();lobby.show();authPanel.recenter=true;};
  $('explore').onclick=explore;$('auth-walk').onclick=explore;$('world').addEventListener('click',unlock);
  document.addEventListener('pointerlockchange',()=>{
@@ -99,6 +101,7 @@ async function start(){
    document.body.classList.toggle('lobby-open',!!auth.token&&authPanel.visible);$('servers').hidden=!auth.token;
    const camera=scene.activeCamera;camera.computeWorldMatrix();planet.update(dt,camera);
    professors.update(dt,player,camera,!room.serverId);
+   marine.update(dt);
    const underwater=!room.serverId&&!player.overview&&camera.globalPosition.length()<WATER_RADIUS;sound.update(player,underwater);
    $('underwater').style.display=underwater?'block':'none';document.body.classList.toggle('playing',(document.pointerLockElement===$('world')||gamepad.active&&!authPanel.visible)&&!player.overview);document.body.classList.toggle('overview',player.overview);
    if(now>hudAt){hudAt=now+250;fps=engine.getFps();$('connection').textContent=network.status+(network.id?' · #'+network.id:'');
@@ -119,6 +122,6 @@ async function start(){
    scene.render();
  });
  // Deliberate read-only diagnostics for local smoke tests and troubleshooting.
- window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,room,professors};
+ window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,room,professors,marine};
 }
 start().catch(error=>{console.error(error);$('fatal').hidden=false;$('fatal').textContent='Не удалось запустить мир\n'+error.message;$('welcome').hidden=true;});

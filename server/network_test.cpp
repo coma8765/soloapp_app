@@ -191,7 +191,7 @@ int main(int argc, char **argv) {
             if (!ready) std::this_thread::sleep_for(50ms);
         }
         check(ready, "Server did not start");
-        for (const auto *path : {"/assets/avatar/player.glb", "/assets/avatar/player-female.glb", "/assets/avatar/uraraka-ochako.glb"}) {
+        for (const auto *path : {"/assets/avatar/player.glb", "/assets/avatar/player-female.glb", "/assets/avatar/uraraka-ochako.glb", "/assets/professor/professor-einstein.glb"}) {
             const auto avatar = request(path, drogon::Get, {});
             check(avatar->statusCode() == 200 && avatar->body().size() > 12 &&
                   avatar->body().substr(0, 4) == "glTF", "Local avatar GLB is not served before login");

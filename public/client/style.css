@@ -7,3 +7,5 @@
 #auth-walk{width:100%;margin-top:12px;background:transparent}#auth-walk span{float:right}.auth-walk-hint{font-size:11px;text-align:center;color:#acc4cc;margin-top:12px}.auth-divider{height:1px;background:#c5dfdc33;margin:14px 0}.auth-local{margin-left:12px;color:#b6ccd3}
 .spatial-ui #auth-dialog{transform:none}.in-vr #auth-dialog{pointer-events:none}
 @media(max-width:750px){#auth-dialog{left:16px;top:50%}.spatial-ui #auth-dialog{left:0;top:0}#toolbar{max-width:calc(100vw - 160px)}#telemetry{top:160px;width:185px}.spatial-ui.auth-required:not(.playing) #telemetry{display:none}}
+
+#voice-controls{margin-top:12px;border-top:1px solid #edf4de22;padding-top:10px}#voice-controls button{width:100%;margin:4px 0;font-size:11px}#microphone[aria-pressed="true"]{background:#d4e39c;color:#203b31}#voice-status{font-size:11px;line-height:1.5;color:#d2e2dc;margin-top:6px}

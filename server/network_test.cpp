@@ -201,6 +201,13 @@ int main(int argc, char **argv) {
         check(premature.authError && premature.welcome.isNull(), "SDP bypassed authentication"); premature.stop();
         Client first(url, thread.getLoop(), token);
         first.wait([&] { return first.welcome.isObject(); }, "First client did not join");
+        check(first.welcome["voice_protocol"] == 1 && first.welcome["rtc_config"]["iceServers"].isArray(), "Missing authenticated voice configuration");
+        const auto &rtcConfig = first.welcome["rtc_config"];
+        check(rtcConfig["iceTransportPolicy"] == "relay" && rtcConfig["iceServers"].size() == 1, "Local voice must use TURN");
+        const auto &relay = rtcConfig["iceServers"][0];
+        check(relay["urls"].asString().rfind("turn:127.0.0.1:", 0) == 0 &&
+              !relay["username"].asString().empty() && relay["credential"].asString().size() == 64,
+              "Missing local TURN address or generated credentials");
         Client second(url, thread.getLoop(), secondToken);
         second.wait([&] { return second.welcome.isObject(); }, "Second client did not join");
         check(second.welcome["peers"].size() == 1, "Late join did not list existing player");

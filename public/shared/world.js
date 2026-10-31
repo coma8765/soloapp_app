@@ -50,5 +50,7 @@ export function validState(s, map = 'planet') {
     Array.isArray(s.position) && s.position.length === 3 && s.position.every(Number.isFinite) &&
     (map === ROOM_MAP ? s.map === ROOM_MAP && validRoomPosition(s.position) : (!s.map || s.map === 'planet') && length(s.position) >= 25 && length(s.position) <= 50) &&
     Array.isArray(s.rotation) && s.rotation.length === 4 && s.rotation.every(Number.isFinite) &&
-    Math.abs(length(s.rotation)-1)<0.05 && Number.isFinite(s.pitch) && Math.abs(s.pitch)<=Math.PI/2;
+    Math.abs(length(s.rotation)-1)<0.05 && Number.isFinite(s.pitch) && Math.abs(s.pitch)<=Math.PI/2 &&
+    (s.avatarId === undefined || (typeof s.avatarId === 'string' && s.avatarId.length <= 32)) &&
+    (s.speed === undefined || (Number.isFinite(s.speed) && s.speed >= 0 && s.speed <= 20));
 }

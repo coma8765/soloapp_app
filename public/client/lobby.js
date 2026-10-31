@@ -16,7 +16,7 @@ export class Lobby {
     this.busy = false;
     this.error = '';
     this.pollError = false;
-    this.connectedServer = this.loadAttempt = 0;
+    this.connectedServer = null; this.loadAttempt = 0;
     this.polling = null;
     this.lastResponseTime = 0;
     this.clockOffset = Date.now() - performance.now();
@@ -91,9 +91,11 @@ export class Lobby {
     this.current = server;
     if (previous?.id !== server?.id || previous?.state !== server?.state) this.visible = true;
     if (!server || server.state !== 'running') {
-      if (this.network.serverId) this.network.disconnect();
-      this.connectedServer = 0;
       this.world.leave?.();
+      if (this.connectedServer !== 0) {
+        this.connectedServer = 0;
+        this.network.connect(0);
+      }
     }
     if (!server) {
       if (previous) this.error = 'Сервер закрыт. Выберите другой или создайте свой.';
@@ -142,6 +144,6 @@ export class Lobby {
   show() { this.visible = true; void this.poll(); }
   reconnect() {
     if (this.current?.state === 'running') this.network.connect(this.current.id);
-    else this.show();
+    else this.network.connect(0);
   }
 }

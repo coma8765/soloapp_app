@@ -56,7 +56,26 @@ export class AccountPanel {
       this.hover = this.targetAt(this.pickMouse(event))?.id || '';
       canvas.style.cursor = this.hover ? 'pointer' : '';
     });
+    // Babylon can suppress synthetic mouse clicks after touch in WebKit.
+    // Activate a tap on pointerup and suppress any follow-up compatibility click.
+    canvas.addEventListener('pointerdown', event => {
+      if (this.xr || event.pointerType === 'mouse') return;
+      const target = this.targetAt(this.pickMouse(event));
+      if (target) this.touchTarget = { pointer: event.pointerId, id: target.id, x: event.clientX, y: event.clientY };
+    }, true);
+    canvas.addEventListener('pointerup', event => {
+      const tap = this.touchTarget;
+      if (!tap || tap.pointer !== event.pointerId) return;
+      this.touchTarget = null;
+      const target = this.targetAt(this.pickMouse(event));
+      if (target?.id !== tap.id || Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 12) return;
+      this.touchClickUntil = performance.now() + 700;
+      event.preventDefault(); event.stopImmediatePropagation();
+      this.activate(target);
+    }, true);
+    canvas.addEventListener('pointercancel', () => { this.touchTarget = null; });
     canvas.addEventListener('click', event => {
+      if (performance.now() < (this.touchClickUntil || 0)) { event.preventDefault(); event.stopImmediatePropagation(); return; }
       const hit = this.pickMouse(event);
       if (!hit) return;
       event.stopImmediatePropagation();
@@ -88,7 +107,7 @@ export class AccountPanel {
     if (!this.xr) $('avatar-options').querySelector('input:checked')?.focus({ preventScroll: true });
     this.player.keys.clear();
     this.player.inputEnabled = false;
-    document.exitPointerLock();
+    document.exitPointerLock?.();
     this.recenter = true;
     this.sync();
   }
@@ -331,7 +350,7 @@ export class AccountPanel {
     button('settings', '⚙', 716, 25, 64, 50, () => this.openSettings());
     text(room ? title(room.name) : 'Выберите сервер', 48, 118, 42);
     if (!room) {
-      text('Создайте свой мир или присоединитесь к друзьям.', 48, 165, 27, '#adc8d2');
+      text('Планета общая. Здесь можно создать отдельную комнату.', 48, 165, 27, '#adc8d2');
       button('create-server', lobby.busy ? 'Создаём…' : '+ Создать сервер', 48, 194, 928, 66, () => { void lobby.action(''); }, true);
       const pages = Math.max(1, Math.ceil(lobby.servers.length / 5));
       this.page = Math.min(this.page || 0, pages - 1);

@@ -1,17 +1,21 @@
-import { avatar } from './scene.js';
+import { avatar, avatarLabel } from './scene.js';
 import { DEFAULT_AVATAR, findAvatar } from './avatar-catalog.js';
 const B = window.BABYLON;
 
 // Rigged bases use procedural poses; explicitly static catalogue entries keep
 // their authored pose and use the same player transform and camera visibility.
 export class LocalAvatar {
-  constructor(scene, initialId = DEFAULT_AVATAR) {
+  constructor(scene, initialId = DEFAULT_AVATAR, peerId = null) {
     this.scene = scene;
-    this.root = new B.TransformNode('local-player', scene);
+    this.root = new B.TransformNode(peerId === null ? 'local-player' : `remote-player-${peerId}`, scene);
     this.root.rotationQuaternion = B.Quaternion.Identity();
     this.root.setEnabled(false);
-    this.fallback = avatar(scene, 0, true);
+    this.fallback = avatar(scene, peerId ?? 0, true);
     this.fallback.parent = this.root;
+    if (peerId !== null) {
+      this.label = avatarLabel(scene, peerId);
+      this.label.parent = this.root;
+    }
     this.phase = 0;
     this.stride = 0;
     this.generation = 0;

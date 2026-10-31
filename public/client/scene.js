@@ -85,11 +85,14 @@ export function avatar(scene,id,local=false){
  const body=B.MeshBuilder.CreateCapsule('capsule',{height:1.8,radius:.35,tessellation:12,subdivisions:3},scene);body.parent=root;body.position.y=.9;
  const colors=['#dbad68','#5aa4b8','#bd7492','#83b365','#ae8bce','#e49362','#d8cb6a','#75bbb0'];body.material=standard('player-color-'+id,colors[id%8],scene);body.isPickable=false;
  const marker=B.MeshBuilder.CreateBox('look-direction',{width:.09,height:.08,depth:.45},scene);marker.parent=root;marker.position.set(0,1.5,-.45);marker.material=body.material;marker.isPickable=false;
- if(!local){const plane=B.MeshBuilder.CreatePlane('id-label',{width:1.4,height:.45},scene);plane.parent=root;plane.position.y=2.2;plane.billboardMode=B.Mesh.BILLBOARDMODE_ALL;
+ if(!local)avatarLabel(scene,id).parent=root;
+ return root;
+}
+export function avatarLabel(scene,id){
+   const plane=B.MeshBuilder.CreatePlane('id-label',{width:1.4,height:.45},scene);plane.position.y=2.2;plane.billboardMode=B.Mesh.BILLBOARDMODE_ALL;
    const tex=new B.DynamicTexture('label',{width:256,height:64},scene,false);tex.hasAlpha=true;tex.drawText('Игрок '+id,null,43,'bold 30px sans-serif','#ffffff','#173038cc',true);
    const mat=new B.StandardMaterial('label',scene);mat.diffuseTexture=tex;mat.emissiveColor=B.Color3.White();mat.disableLighting=true;mat.backFaceCulling=false;plane.material=mat;plane.isPickable=false;
- }
- return root;
+ return plane;
 }
 export class FishView {
  constructor(scene,profiles=[]){this.scene=scene;this.fish=[];this.sequence=-1;this.last=0;this.time=0;this.blend=0;

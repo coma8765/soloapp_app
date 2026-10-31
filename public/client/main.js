@@ -11,6 +11,7 @@ import {AvatarPreferences} from './avatar-catalog.js';
 import {VisualQuality} from './quality.js';
 import {Lobby} from './lobby.js';
 import {GamepadControls} from './gamepad.js';
+import {TouchControls} from './touch.js';
 import {WhiteRoom} from './white-room.js';
 import {LakeProfessors} from './lake-professors.js';
 import {MarineLife} from './marine.js';
@@ -40,7 +41,7 @@ async function start(){
  let network,lobby,xr,authPanel,signingIn=false,loggingOut=false;
  async function signIn(message=''){
    if(authPanel?.settingsOpen)authPanel.closeSettings();
-   document.exitPointerLock();
+   document.exitPointerLock?.();
    const ready=auth.require(message);
    if(authPanel)authPanel.recenter=true;
    if(signingIn)return;signingIn=true;
@@ -86,12 +87,13 @@ async function start(){
  if(!auth.token)void signIn();else lobby.activate();
  $('explore').disabled=false;$('explore').textContent='Начать исследование ↗';
  const unlock=()=>{voice.unlock();sound.start().catch(()=>{});};
- const explore=()=>{document.activeElement?.blur();if(player.overview)player.toggleOverview();unlock();if(!xr.active)$('world').requestPointerLock()?.catch(()=>{});};
+ const explore=()=>{document.activeElement?.blur();if(player.overview)player.toggleOverview();unlock();if(player.touchEnabled){$('auth-dialog').close();lobby.visible=false;authPanel?.sync();}else if(!xr.active)$('world').requestPointerLock?.()?.catch(()=>{});};
  authPanel=new AccountPanel(scene,auth,player,$('world'),explore,preferences);authPanel.lobby=lobby;xr.authPanel=authPanel;
  $('settings').onclick=()=>authPanel.openSettings();
  const gamepad=new GamepadControls(player,authPanel,xr,$('gamepad-status'));
+ const touch=new TouchControls(player,authPanel,xr,$('world'),voice);
  const marine=new MarineLife(scene,terrain,planet,player,$('world'),authPanel,xr,gamepad);xr.marine=marine;
- $('servers').onclick=()=>{if(authPanel.settingsBusy||lobby.countdown)return;authPanel.closeSettings();document.exitPointerLock();lobby.show();authPanel.recenter=true;};
+ $('servers').onclick=()=>{if(authPanel.settingsBusy||lobby.countdown)return;authPanel.closeSettings();document.exitPointerLock?.();lobby.show();authPanel.recenter=true;};
  $('explore').onclick=explore;$('auth-walk').onclick=explore;$('world').addEventListener('click',unlock);
  document.addEventListener('pointerlockchange',()=>{
    if(document.pointerLockElement===$('world')){$('auth-dialog').close();lobby.visible=false;}
@@ -106,8 +108,8 @@ async function start(){
  engine.runRenderLoop(()=>{
    const now=performance.now(),dt=Math.min((now-previous)/1000,.05);previous=now;
    player.inputEnabled=!lobby.countdown&&!authPanel.settingsOpen;
-   if(lobby.countdown){player.keys.clear();player.speed=0;if(document.pointerLockElement)document.exitPointerLock();}
-   authPanel.sync();gamepad.update(dt);player.update(dt,xr.input());xr.sync();network.update(dt);if(!room.serverId)fish.update(dt);planet.updateActor('local',player.position,dt);authPanel.sync();
+   if(lobby.countdown){player.keys.clear();player.speed=0;if(document.pointerLockElement)document.exitPointerLock?.();}
+   authPanel.sync();gamepad.update(dt);touch.update();player.update(dt,xr.input());xr.sync();network.update(dt);if(!room.serverId)fish.update(dt);planet.updateActor('local',player.position,dt);authPanel.sync();
    document.body.classList.toggle('in-room',!!room.serverId);document.body.classList.toggle('counting-down',lobby.countdown);
    document.body.classList.toggle('lobby-open',!!auth.token&&authPanel.visible);$('servers').hidden=!auth.token;
    const camera=scene.activeCamera;camera.computeWorldMatrix();planet.update(dt,camera);
@@ -115,14 +117,14 @@ async function start(){
    marine.update(dt);
    laboratory.update(player.position);
    const underwater=!room.serverId&&!player.overview&&camera.globalPosition.length()<WATER_RADIUS;sound.update(player,underwater);
-   $('underwater').style.display=underwater?'block':'none';document.body.classList.toggle('playing',(document.pointerLockElement===$('world')||gamepad.active&&!authPanel.visible)&&!player.overview);document.body.classList.toggle('overview',player.overview);
+   $('underwater').style.display=underwater?'block':'none';document.body.classList.toggle('playing',(document.pointerLockElement===$('world')||gamepad.active&&!authPanel.visible||touch.active)&&!player.overview);document.body.classList.toggle('overview',player.overview);
    if(now>hudAt){hudAt=now+250;fps=engine.getFps();$('connection').textContent=network.status+(network.id?' · #'+network.id:'');
      $('overview').querySelector('span').textContent=room.serverId?'Обзор комнаты':'Вся планета';
      $('world').setAttribute('aria-label',room.serverId?'Белая комната':'Трёхмерная микропланета');
-     if(auth.token&&lobby.current?.state!=='running')$('connection').textContent=lobby.countdown?'Переход через '+lobby.secondsLeft+' с':lobby.current?(lobby.current.state==='loading'?'Подготовка мира':'Ожидание запуска'):'Выберите сервер';
+     if(auth.token&&lobby.current?.state!=='running')$('connection').textContent=lobby.countdown?'Переход через '+lobby.secondsLeft+' с':network.status+' · общая планета';
      $('stats').textContent=!auth.token?`${Math.round(fps)} FPS · только вы\nСинхронизация выключена\nВойдите, чтобы встретить других игроков`:`${Math.round(fps)} FPS · ${network.peers.size+1} / 8 игроков\nPing (RTT) · ${now-network.pingAt<5000?network.ping??'—':'—'} мс\nWebRTC RX · ${network.rx}\nРыбы · ${network.worldTransport}${fish.sequence>=0?' · 48':' · ожидание'}\n${fish.sequence>=0?'Снимок '+fish.sequence:''}`;
-     $('reconnect').textContent=auth.token?(lobby.current?.state==='running'?'Переподключиться ↗':'Список серверов ↗'):'Войти в общий мир ↗';
-     if(auth.token&&lobby.current?.state!=='running')$('stats').textContent=`${Math.round(fps)} FPS · локальная прогулка\n${lobby.current?lobby.current.member_count+' / 8 участников':'Создайте сервер или вступите в существующий'}\nСинхронизация начнётся после запуска мира`;
+     $('reconnect').textContent=auth.token?'Переподключиться ↗':'Войти в общий мир ↗';
+     if(auth.token&&lobby.current?.state!=='running')$('stats').textContent=`${Math.round(fps)} FPS · общая планета\n${network.peers.size+1} / 8 игроков · RTT ${network.ping??'—'} мс\n${network.worldTransport} · tick ${network.worldTick}${lobby.current?'\nКомната: '+lobby.current.member_count+' / 8 участников':''}`;
      if(room.serverId)$('stats').textContent=`${Math.round(fps)} FPS · белая комната\n${network.peers.size+1} / 8 игроков · RTT ${network.ping??'—'} мс\n${network.worldTransport} · tick ${network.worldTick}`;
      $('players').textContent=[...network.remotes].map(([id,r])=>{const dot=B.Vector3.Dot(player.position.normalizeToNew(),r.node.position.normalizeToNew()),angle=Math.acos(clamp(dot,-1,1)),distance=angle*38,peer=network.peers.get(id),notes=[];
        if(!room.serverId&&angle>.32)notes.push('за горизонтом');if(!room.serverId&&r.node.position.length()<WATER_RADIUS)notes.push('в воде');if(B.Vector3.Dot(r.node.position.subtract(player.position),player.forward)<0)notes.push('сзади');if(now-r.last>3000)notes.push('нет свежей позиции');
@@ -134,6 +136,6 @@ async function start(){
    scene.render();
  });
  // Deliberate read-only diagnostics for local smoke tests and troubleshooting.
- window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,room,professors,marine,professorRecorder,laboratory};
+ window.planetApp={engine,scene,terrain,planet,player,fish,network,xr,sound,voice,authPanel,quality,lobby,gamepad,touch,room,professors,marine,professorRecorder,laboratory};
 }
 start().catch(error=>{console.error(error);$('fatal').hidden=false;$('fatal').textContent='Не удалось запустить мир\n'+error.message;$('welcome').hidden=true;});

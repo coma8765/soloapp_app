@@ -1,5 +1,6 @@
 import {orientation,vec} from './scene.js';
 import {LocalAvatar} from './local-avatar.js';
+import {DEFAULT_AVATAR} from './avatar-catalog.js';
 import {WATER_RADIUS,clamp} from '../shared/world.js';
 import {ROOM_MAP,ROOM_PLAYER_LIMIT,roomSpawn} from '../shared/room.js';
 const B=window.BABYLON;
@@ -11,22 +12,22 @@ export class Player {
    this.camera=new B.FreeCamera('player-view',this.position.clone(),scene);this.camera.inputs.clear();this.camera.minZ=.05;this.camera.maxZ=400;this.camera.fov=75*Math.PI/180;this.camera.rotationQuaternion=B.Quaternion.Identity();this.camera.updateUpVectorFromRotation=true;
    this.overviewCamera=new B.FreeCamera('overview',new B.Vector3(60,65,70),scene);this.overviewCamera.inputs.clear();this.overviewCamera.minZ=.1;this.overviewCamera.maxZ=400;this.overviewCamera.fov=55*Math.PI/180;
    this.avatar=new LocalAvatar(scene,avatarId);this.body=this.avatar.root;scene.activeCamera=this.camera;
-   canvas.addEventListener('click',()=>{if(this.inputEnabled&&!this.overview&&!this.xr)canvas.requestPointerLock()?.catch(()=>{});});
+   canvas.addEventListener('click',()=>{if(this.inputEnabled&&!this.overview&&!this.xr&&!this.touchEnabled)canvas.requestPointerLock?.()?.catch(()=>{});});
    window.addEventListener('keydown',e=>{if(!this.inputEnabled||e.target.closest?.('input,textarea,select,button,[contenteditable]'))return;if(['Tab','KeyW','KeyA','KeyS','KeyD','Space'].includes(e.code))e.preventDefault();this.keys.add(e.code);if(e.repeat)return;
      if(e.code==='Tab'&&!this.xr)this.toggleOverview();if(e.code==='KeyV'&&!this.xr&&!this.overview)this.third=!this.third;
    });
    window.addEventListener('keyup',e=>this.keys.delete(e.code));
-   window.addEventListener('blur',()=>{this.keys.clear();document.exitPointerLock();});
+   window.addEventListener('blur',()=>{this.keys.clear();document.exitPointerLock?.();});
    document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement!==canvas)this.keys.clear();});
    window.addEventListener('mousemove',e=>{if(!this.inputEnabled||document.pointerLockElement!==canvas||this.overview||this.xr)return;this.turn(-e.movementX*.0025);this.pitch=clamp(this.pitch-e.movementY*.0025,-85*Math.PI/180,85*Math.PI/180);});
    this.update(0);
  }
  up(){return this.worldMap===ROOM_MAP?B.Vector3.Up():this.position.normalizeToNew();}
  turn(angle){this.forward.rotateByQuaternionToRef(B.Quaternion.RotationAxis(this.up(),angle),this.forward);}
- setMap(map,position){this.worldMap=map;this.position=vec(position);this.forward.set(0,0,-1);this.pitch=-.12;this.radialSpeed=0;this.speed=0;this.overview=false;this.keys.clear();this.gamepadMove=null;this.inputEnabled=true;if(!this.xr)this.scene.activeCamera=this.camera;this.update(0);}
- toggleOverview(){this.overview=!this.overview;document.exitPointerLock();this.scene.activeCamera=this.overview?this.overviewCamera:this.camera;}
+ setMap(map,position){this.worldMap=map;this.position=vec(position);this.forward.set(0,0,-1);this.pitch=-.12;this.radialSpeed=0;this.speed=0;this.overview=false;this.keys.clear();this.gamepadMove=null;this.touchMove=null;this.inputEnabled=true;if(!this.xr)this.scene.activeCamera=this.camera;this.update(0);}
+ toggleOverview(){this.overview=!this.overview;document.exitPointerLock?.();this.scene.activeCamera=this.overview?this.overviewCamera:this.camera;}
  spawn(id){this.position=vec(this.worldMap===ROOM_MAP?roomSpawn((id-1)%8):this.terrain.spawn((id-1)%8));this.radialSpeed=0;}
- state(sequence){return{type:'state',map:this.worldMap,sequence,position:this.position.asArray(),rotation:this.rotation.asArray(),pitch:this.pitch};}
+ state(sequence){return{type:'state',map:this.worldMap,sequence,position:this.position.asArray(),rotation:this.rotation.asArray(),pitch:this.pitch,avatarId:this.avatar.id||DEFAULT_AVATAR,speed:this.inputEnabled?Math.min(20,Math.max(0,this.speed)):0};}
  update(dt,vrInput=null){
    if(!this.inputEnabled)return;
    const flat=this.worldMap===ROOM_MAP,before=this.position.clone(),up=this.up();
@@ -36,7 +37,7 @@ export class Player {
    if(this.xr&&vrInput?.lengthSquared()>.0001)direction=vrInput;
    else if(!this.overview){
      const keyboard=document.pointerLockElement===this.canvas;
-     const x=(keyboard?Number(this.keys.has('KeyD'))-Number(this.keys.has('KeyA')):0)+(this.gamepadMove?.x||0),y=(keyboard?Number(this.keys.has('KeyW'))-Number(this.keys.has('KeyS')):0)+(this.gamepadMove?.y||0);
+     const x=(keyboard?Number(this.keys.has('KeyD'))-Number(this.keys.has('KeyA')):0)+(this.gamepadMove?.x||0)+(this.touchMove?.x||0),y=(keyboard?Number(this.keys.has('KeyW'))-Number(this.keys.has('KeyS')):0)+(this.gamepadMove?.y||0)+(this.touchMove?.y||0);
      let forward=this.forward;
      if(this.xr){forward=B.Vector3.TransformNormal(new B.Vector3(0,0,-1),this.scene.activeCamera.getWorldMatrix());forward.subtractInPlace(up.scale(B.Vector3.Dot(forward,up))).normalize();if(forward.lengthSquared()<.01)forward=this.forward;}
      direction=forward.scale(y).add(B.Vector3.Cross(forward,up).scale(x));if(direction.length()>1)direction.normalize();

@@ -118,7 +118,7 @@ export class GamepadControls {
     if (down.some(Boolean) || left.x || left.y || right.x || right.y) this.active = true;
     if (pressed(9) || pressed(2)) {
       if (this.panel.visible) this.closePanel();
-      else { document.exitPointerLock(); this.panel.toggle(); this.panel.sync(); }
+      else { document.exitPointerLock?.(); this.panel.toggle(); this.panel.sync(); }
     } else if (pressed(1)) {
       if (this.panel.visible) this.closePanel();
       else if (this.player.overview && !this.xr.active) this.player.toggleOverview();

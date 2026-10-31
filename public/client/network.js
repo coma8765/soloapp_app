@@ -1,6 +1,8 @@
 import { validState } from '../shared/world.js';
 import { ROOM_MAP, validRoomPosition } from '../shared/room.js';
-import { avatar, vec } from './scene.js';
+import { vec } from './scene.js';
+import { LocalAvatar } from './local-avatar.js';
+import { DEFAULT_AVATAR, findAvatar } from './avatar-catalog.js';
 const B = window.BABYLON;
 
 export class Network {
@@ -57,7 +59,7 @@ export class Network {
   connect(serverId = this.serverId) {
     this.disconnect();
     if (!this.auth.token || Date.now() >= this.auth.expiresAt) { this.requireAuth(); return; }
-    if (!Number.isSafeInteger(serverId) || serverId <= 0) { this.onRoomRequired?.(); return; }
+    if (!Number.isSafeInteger(serverId) || serverId < 0) { this.onRoomRequired?.(); return; }
     this.serverId = serverId;
     const generation = this.generation;
     this.status = 'Подключение…';
@@ -107,8 +109,11 @@ export class Network {
     if (type === 'auth_error') { this.requireAuth(); return; }
     if (type === 'room_error') { this.roomRequired(); return; }
     if (type === 'welcome') {
-      if (message.map !== this.player.worldMap || !validRoomPosition(message.spawn)) { this.roomRequired(); return; }
+      if (message.map !== this.player.worldMap || message.server_id !== this.serverId || (message.map === ROOM_MAP && !validRoomPosition(message.spawn))) { this.roomRequired(); return; }
       this.id = message.id;
+      if (message.map === 'planet' && !this.player.planetSpawned) {
+        this.player.spawn?.(this.id); this.player.planetSpawned = true;
+      }
       this.rtcConfig = message.rtc_config || { iceServers: [] };
       if (this.voice) { this.voice.online = true; this.voice.onChange(); }
       this.sequence = 0;
@@ -182,7 +187,10 @@ export class Network {
     else if (channel.label === 'players-v1') peer.dc = channel;
     else { channel.close(); return; }
     channel.onopen = () => {
-      if (this.peers.get(id) === peer && channel.readyState === 'open') channel.send(JSON.stringify(this.player.state(++this.sequence)));
+      if (this.peers.get(id) !== peer || channel.readyState !== 'open') return;
+      const state = this.player.state(++this.sequence);
+      channel.send(JSON.stringify(state));
+      if (channel.label === 'control-v1') peer.avatarId = state.avatarId;
     };
     channel.onmessage = event => {
       if (this.peers.get(id) !== peer) return;
@@ -235,7 +243,7 @@ export class Network {
       if (this.worldPC !== pc) return;
       try {
         const message = JSON.parse(event.data);
-        if (message.type !== 'world' || message.map !== ROOM_MAP || message.server_id !== this.serverId || !Number.isSafeInteger(message.sequence) || message.sequence <= this.worldTick) return;
+        if (message.type !== 'world' || message.map !== this.player.worldMap || message.server_id !== this.serverId || !Number.isSafeInteger(message.sequence) || message.sequence <= this.worldTick) return;
         this.worldTransport = 'WebRTC';
         this.worldReceived = performance.now(); this.worldTick = message.sequence;
         if (Array.isArray(message.players)) for (const state of message.players) {
@@ -256,23 +264,29 @@ export class Network {
   apply(id, state) {
     if (!validState(state, this.player.worldMap)) return;
     let remote = this.remotes.get(id);
+    // Server world snapshots carry pose only; retain peer appearance metadata.
+    const avatarId = state.avatarId === undefined ? remote?.avatarId || DEFAULT_AVATAR : findAvatar(state.avatarId)?.id || DEFAULT_AVATAR;
     if (!remote) {
-      remote = { node: avatar(this.scene, id), sequence: -1, last: 0 };
+      const avatar = new LocalAvatar(this.scene, avatarId, id);
+      remote = { avatar, avatarId, node: avatar.root, sequence: -1, last: 0 };
       this.remotes.set(id, remote);
     }
     if (state.sequence <= remote.sequence) return;
+    if (remote.avatarId !== avatarId) {
+      remote.avatarId = avatarId;
+      void remote.avatar.select(avatarId);
+    }
     const first = remote.sequence < 0;
     remote.sequence = state.sequence;
     remote.last = performance.now();
-    remote.state = state;
+    remote.state = { ...state, speed: state.speed ?? remote.state?.speed ?? 0 };
     remote.target = vec(state.position);
     remote.rotation = B.Quaternion.FromArray(state.rotation);
-    const marker = remote.node.getChildMeshes().find(mesh => mesh.name === 'look-direction');
-    if (marker) marker.rotation.x = state.pitch;
     if (first) {
       remote.node.position.copyFrom(remote.target);
       remote.node.rotationQuaternion.copyFrom(remote.rotation);
     }
+    remote.avatar.update(0, remote.state.speed, state.pitch, true);
   }
 
   update(dt) {
@@ -281,8 +295,16 @@ export class Network {
     if (this.id && this.socket?.readyState === WebSocket.OPEN) {
       if (now - this.lastSend >= 50) {
         this.lastSend = now;
-        const raw = JSON.stringify(this.player.state(++this.sequence));
-        for (const peer of this.peers.values()) if (peer.dc?.readyState === 'open' && peer.dc.bufferedAmount < 65536) peer.dc.send(raw);
+        const state = this.player.state(++this.sequence), raw = JSON.stringify(state);
+        for (const peer of this.peers.values()) {
+          if (peer.dc?.readyState === 'open' && peer.dc.bufferedAmount < 65536) peer.dc.send(raw);
+          // Appearance changes also use the reliable channel; late joiners get
+          // the complete current state in onopen, without a new negotiation.
+          if (peer.avatarId !== state.avatarId && peer.control?.readyState === 'open' && peer.control.bufferedAmount < 65536) {
+            peer.control.send(raw);
+            peer.avatarId = state.avatarId;
+          }
+        }
       }
       if (now - this.lastWorldSend >= 100 && this.worldChannel?.readyState === 'open') {
         this.lastWorldSend = now;
@@ -298,6 +320,7 @@ export class Network {
     for (const [id, remote] of this.remotes) {
       remote.node.position = B.Vector3.Lerp(remote.node.position, remote.target, 1 - Math.exp(-dt * 12));
       remote.node.rotationQuaternion = B.Quaternion.Slerp(remote.node.rotationQuaternion, remote.rotation, 1 - Math.exp(-dt * 12));
+      remote.avatar.update(dt, now - remote.last < 1000 ? remote.state.speed || 0 : 0, remote.state.pitch, true);
       this.planet.updateActor(id, remote.node.position, dt);
     }
   }

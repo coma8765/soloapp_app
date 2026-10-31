@@ -21,7 +21,7 @@ export class XRView {
      this.button.textContent='Войти в VR · Quest';this.button.disabled=false;
      this.button.onclick=async()=>{
        if(!this.player.inputEnabled)return;
-       document.exitPointerLock();this.savedOverview=this.player.overview;
+       document.exitPointerLock?.();this.savedOverview=this.player.overview;
        this.scene.activeCamera=this.helper.camera;this.helper.camera.position.set(0,0,0);this.helper.camera.rotationQuaternion.copyFrom(B.Quaternion.Identity());
        this.origin.position.copyFrom(this.player.position);this.origin.rotationQuaternion.copyFrom(this.player.rotation);
        const options=B.WebXRManagedOutputCanvasOptions.GetDefaults(this.scene.getEngine());

@@ -4,12 +4,18 @@
 #include <json/json.h>
 #include <stdexcept>
 #include <string>
+#include <arpa/inet.h>
 
-// Loopback-only TURN for the standalone local app. Credentials change on every
+// Embedded TURN, loopback by default, or bound to an explicit LAN IPv4 address.
+// Credentials change on every
 // process start and are disclosed only in the authenticated WebSocket welcome.
 class LocalRtcRelay {
 public:
-    LocalRtcRelay() {
+    explicit LocalRtcRelay(const std::string &address_ = "127.0.0.1", uint16_t port = 0) : address(address_) {
+        in_addr parsed{};
+        if (inet_pton(AF_INET, address.c_str(), &parsed) != 1 ||
+            ntohl(parsed.s_addr) == INADDR_ANY || (ntohl(parsed.s_addr) >> 24) >= 224)
+            throw std::runtime_error("TURN address must be a concrete local IPv4 address, not 0.0.0.0 or multicast");
         unsigned char random[32];
         if (RAND_bytes(random, sizeof random) != 1) throw std::runtime_error("Cannot create local TURN credentials");
         constexpr char hex[] = "0123456789abcdef";
@@ -23,8 +29,9 @@ public:
         config.credentials_count = 1;
         config.max_allocations = 128;
         config.max_peers = 16;
-        config.bind_address = "127.0.0.1";
-        config.external_address = "127.0.0.1";
+        config.bind_address = address.c_str();
+        config.external_address = address.c_str();
+        config.port = port;
         config.realm = "microplanet-local";
         server = juice_server_create(&config);
         if (!server) throw std::runtime_error("Cannot start local TURN relay");
@@ -35,7 +42,7 @@ public:
 
     Json::Value configuration() const {
         Json::Value result, entry;
-        entry["urls"] = "turn:127.0.0.1:" + std::to_string(juice_server_get_port(server)) + "?transport=udp";
+        entry["urls"] = "turn:" + address + ':' + std::to_string(juice_server_get_port(server)) + "?transport=udp";
         entry["username"] = "planet-local";
         entry["credential"] = password;
         result["iceServers"] = Json::Value(Json::arrayValue);
@@ -45,5 +52,6 @@ public:
     }
 private:
     juice_server_t *server = nullptr;
+    std::string address;
     std::string password;
 };

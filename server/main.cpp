@@ -44,6 +44,8 @@ struct Session {
     Vec3 position;
     Json::Value rotation;
     double pitch = 0;
+    std::string avatarId;
+    double speed = 0;
     Json::Int64 sequence = -1;
     double lastPosition = -100, echo = 0, signalWindow = 0;
     int signalCount = 0;
@@ -83,13 +85,15 @@ public:
 
     bool authorized(const std::shared_ptr<Session> &session) {
         if (!auth.active(session->identity.digest)) { reject(session->socket); return false; }
-        if (!lobby.canConnect(session->identity.id, session->serverId)) { rejectRoom(session->socket); return false; }
+        if (session->serverId != 0 && !lobby.canConnect(session->identity.id, session->serverId)) { rejectRoom(session->socket); return false; }
         return true;
     }
 
     void join(const drogon::WebSocketConnectionPtr &socket, const Identity &identity, long long serverId) {
         if (!socket->connected()) return;
-        if (!lobby.canConnect(identity.id, serverId)) { rejectRoom(socket); return; }
+        // ID 0 is the shared planet for authenticated visitors. Positive IDs
+        // retain the lobby membership and readiness barrier of private rooms.
+        if (serverId < 0 || (serverId != 0 && !lobby.canConnect(identity.id, serverId))) { rejectRoom(socket); return; }
         const auto count = std::count_if(sessions.begin(), sessions.end(), [serverId](const auto &entry) { return entry.second->serverId == serverId; });
         if (count >= 8) { socket->shutdown(drogon::CloseCode::kViolation, "Room is full"); return; }
         auto session = std::make_shared<Session>();
@@ -107,8 +111,8 @@ public:
         welcome["server_id"] = Json::Int64(serverId);
         welcome["user_id"] = Json::Int64(identity.id);
         welcome["expires_at"] = Json::Int64(identity.expires);
-        welcome["map"] = "white-room";
-        const auto room = lobby.get(serverId).body["server"];
+        welcome["map"] = serverId == 0 ? "planet" : "white-room";
+        const auto room = serverId == 0 ? Json::Value() : lobby.get(serverId).body["server"];
         for (const auto &member : room["members"]) if (member["id"].asInt64() == identity.id) {
             const auto spawn = roomSpawn(member["spawn_slot"].asInt());
             welcome["spawn"] = Json::Value(Json::arrayValue);
@@ -241,10 +245,16 @@ public:
         const double pitch = message["pitch"].asDouble();
         if (std::abs(std::sqrt(norm) - 1) >= .05 || !std::isfinite(pitch) || std::abs(pitch) > 1.570797) return;
         const auto sequence = message["sequence"].asInt64();
-        if (sequence <= session->sequence || !validRoomPosition(position)) return;
+        const double radius = std::sqrt(position.x * position.x + position.y * position.y + position.z * position.z);
+        if (sequence <= session->sequence || (session->serverId == 0 ? radius < 25 || radius > 50 : !validRoomPosition(position))) return;
+        if (message.isMember("map") && message["map"] != (session->serverId == 0 ? "planet" : "white-room")) return;
+        if (message.isMember("avatarId") && (!message["avatarId"].isString() || message["avatarId"].asString().size() > 32)) return;
+        if (message.isMember("speed") && (!message["speed"].isNumeric() || !std::isfinite(message["speed"].asDouble()) || message["speed"].asDouble() < 0 || message["speed"].asDouble() > 20)) return;
         session->sequence = sequence;
         session->position = position;
         session->rotation = rotation; session->pitch = pitch;
+        if (message.isMember("avatarId")) session->avatarId = message["avatarId"].asString();
+        if (message.isMember("speed")) session->speed = message["speed"].asDouble();
         session->lastPosition = now();
         if (message["sent"].isNumeric()) session->echo = message["sent"].asDouble();
     }
@@ -258,7 +268,8 @@ public:
             const auto identity = auth.authorize(message["token"].asString());
             if (!identity) { reject(socket); return; }
             pending.erase(socket.get());
-            join(socket, *identity, message["server_id"].isInt64() ? message["server_id"].asInt64() : 0);
+            if (!message["server_id"].isInt64()) { rejectRoom(socket); return; }
+            join(socket, *identity, message["server_id"].asInt64());
             return;
         }
         if (!authorized(session)) return;
@@ -311,12 +322,13 @@ public:
         std::vector<std::shared_ptr<Session>> current;
         for (const auto &[id, session] : sessions) current.push_back(session);
         for (const auto &session : current) authorized(session);
-        const auto running = lobby.running();
+        auto running = lobby.running();
+        running.push_back(0);
         ++ticks;
         if (ticks % 2 != 0) return;
         for (const auto serverId : running) {
             Json::Value snapshot;
-            snapshot["type"] = "world"; snapshot["map"] = "white-room";
+            snapshot["type"] = "world"; snapshot["map"] = serverId == 0 ? "planet" : "white-room";
             snapshot["sequence"] = ticks;
             snapshot["server_id"] = Json::Int64(serverId);
             // Also deliver poses over the authenticated server RTC channel when
@@ -325,8 +337,10 @@ public:
             for (const auto &[id, member] : sessions) {
                 if (member->serverId != serverId || now() - member->lastPosition >= 3 || member->sequence < 0) continue;
                 Json::Value state;
-                state["id"] = id; state["type"] = "state"; state["map"] = "white-room";
+                state["id"] = id; state["type"] = "state"; state["map"] = snapshot["map"];
                 state["sequence"] = member->sequence; state["pitch"] = member->pitch; state["rotation"] = member->rotation;
+                if (!member->avatarId.empty()) state["avatarId"] = member->avatarId;
+                state["speed"] = member->speed;
                 state["position"] = Json::Value(Json::arrayValue);
                 for (const double v : {member->position.x, member->position.y, member->position.z}) state["position"].append(v);
                 snapshot["players"].append(state);
@@ -372,24 +386,50 @@ public:
 int main(int argc, char **argv) {
     int port = 3000;
     int whisperPort = 8178;
+    std::string host = "127.0.0.1";
     std::string navigation = "server/data/lakes.json";
     std::string webRoot = "public";
     std::string authPath = "runtime/auth.sqlite3";
     const auto *rtcConfigEnv = std::getenv("PLANET_RTC_CONFIG");
     std::string rtcConfigPath = rtcConfigEnv ? rtcConfigEnv : "";
+    const auto *tlsCertEnv = std::getenv("PLANET_TLS_CERT");
+    const auto *tlsKeyEnv = std::getenv("PLANET_TLS_KEY");
+    std::string tlsCert = tlsCertEnv ? tlsCertEnv : "";
+    std::string tlsKey = tlsKeyEnv ? tlsKeyEnv : "";
+    const auto *turnAddressEnv = std::getenv("PLANET_TURN_ADDRESS");
+    const auto *turnPortEnv = std::getenv("PLANET_TURN_PORT");
+    std::string turnAddress = turnAddressEnv ? turnAddressEnv : "127.0.0.1";
+    std::string turnPortText = turnPortEnv ? turnPortEnv : "0";
     try {
         for (int i = 1; i < argc; ++i) {
             const std::string argument = argv[i];
             if (argument.rfind("--port=", 0) == 0) port = std::stoi(argument.substr(7));
             else if (argument.rfind("--whisper-port=", 0) == 0) whisperPort = std::stoi(argument.substr(15));
+            else if (argument.rfind("--host=", 0) == 0) host = argument.substr(7);
             else if (argument.rfind("--nav=", 0) == 0) navigation = argument.substr(6);
             else if (argument.rfind("--web=", 0) == 0) webRoot = argument.substr(6);
             else if (argument.rfind("--auth-db=", 0) == 0) authPath = argument.substr(10);
             else if (argument.rfind("--rtc-config=", 0) == 0) rtcConfigPath = argument.substr(13);
+            else if (argument.rfind("--tls-cert=", 0) == 0) tlsCert = argument.substr(11);
+            else if (argument.rfind("--tls-key=", 0) == 0) tlsKey = argument.substr(10);
+            else if (argument.rfind("--turn-address=", 0) == 0) turnAddress = argument.substr(15);
+            else if (argument.rfind("--turn-port=", 0) == 0) turnPortText = argument.substr(12);
             else throw std::runtime_error("Unknown argument: " + argument);
         }
         if (port < 1 || port > 65535) throw std::runtime_error("Invalid port");
         if (whisperPort < 1 || whisperPort > 65535) throw std::runtime_error("Invalid Whisper port");
+        size_t portEnd = 0;
+        const int turnPort = std::stoi(turnPortText, &portEnd);
+        if (portEnd != turnPortText.size() || turnPort < 0 || turnPort > 65535) throw std::runtime_error("Invalid TURN port");
+        if (tlsCert.empty() != tlsKey.empty()) throw std::runtime_error("HTTPS requires both TLS certificate and private key");
+        const bool https = !tlsCert.empty();
+        if (https) {
+            for (const auto &path : {tlsCert, tlsKey}) {
+                if (!std::filesystem::is_regular_file(path)) throw std::runtime_error("TLS certificate or private key file is missing");
+                const auto relative = std::filesystem::weakly_canonical(path).lexically_relative(std::filesystem::weakly_canonical(webRoot));
+                if (!relative.empty() && *relative.begin() != "..") throw std::runtime_error("TLS files must be outside the public directory");
+            }
+        }
         if (!std::filesystem::exists(std::filesystem::path(webRoot) / "index.html")) throw std::runtime_error("Missing public/index.html");
         rtc::InitLogger(rtc::LogLevel::Warning);
         const auto relativeDb = std::filesystem::weakly_canonical(authPath).lexically_relative(std::filesystem::weakly_canonical(webRoot));
@@ -406,15 +446,19 @@ int main(int argc, char **argv) {
         std::unique_ptr<LocalRtcRelay> localRelay;
         auto rtcConfig = loadRtcConfig(rtcConfigPath);
         if (rtcConfigPath.empty()) {
-            localRelay = std::make_unique<LocalRtcRelay>();
+            localRelay = std::make_unique<LocalRtcRelay>(turnAddress, static_cast<uint16_t>(turnPort));
             rtcConfig = localRelay->configuration();
+            std::cout << "WebRTC relay " << rtcConfig["iceServers"][0]["urls"].asString() << std::endl;
+            if (host != "127.0.0.1" && turnAddress.rfind("127.", 0) == 0)
+                std::cerr << "WebRTC is local-only: set --turn-address=<LAN IPv4> or --rtc-config for other devices\n";
         }
         game = std::make_unique<Game>(auth, lobby, rtcConfig);
-        drogon::app().setLogLevel(trantor::Logger::kWarn).setThreadNum(1).setClientMaxWebSocketMessageSize(65536).addListener("127.0.0.1", port);
+        drogon::app().setLogLevel(trantor::Logger::kWarn).setThreadNum(1).setClientMaxWebSocketMessageSize(65536)
+            .addListener(host, port, https, tlsCert, tlsKey);
         drogon::app().setDocumentRoot(std::filesystem::absolute(webRoot).string()).setHomePage("index.html")
             .setFileTypes({"html", "js", "css", "json", "svg", "gz", "glb"}).setStaticFilesCacheTime(-1);
         drogon::app().getLoop()->runEvery(0.05, [] { game->tick(); });
-        std::cout << "MICRO / PLANET http://127.0.0.1:" << port << " | C++ / Babylon.js / WebRTC" << std::endl;
+        std::cout << "MICRO / PLANET " << (https ? "https://" : "http://") << host << ':' << port << " | C++ / Babylon.js / WebRTC" << std::endl;
         drogon::app().run();
         game.reset();
     } catch (const std::exception &error) { std::cerr << error.what() << '\n'; return 1; }

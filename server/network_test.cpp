@@ -326,6 +326,37 @@ int main(int argc, char **argv) {
         first.channel->send(encode(player));
         std::this_thread::sleep_for(150ms);
         { std::lock_guard lock(first.mutex); check(first.snapshots.rbegin()->second["ack"].asInt() == 12, "Server accepted position outside white room"); }
+        // Authenticated visitors share planet ID 0 without creating a lobby.
+        // Its poses and signaling remain isolated from positive room IDs.
+        Client planetA(url, thread.getLoop(), token, 0), planetB(url, thread.getLoop(), secondToken, 0);
+        planetA.wait([&] { return planetA.welcome.isObject(); }, "Planet visitor could not connect");
+        planetB.wait([&] { return planetB.welcome.isObject(); }, "Second planet visitor could not connect");
+        check(planetA.welcome["map"] == "planet" && planetB.welcome["map"] == "planet", "Wrong planet map");
+        check(planetA.welcome["peers"].size() + planetB.welcome["peers"].size() == 1, "Planet peers mixed with room peers");
+        planetA.startWorld(); planetB.startWorld();
+        planetA.wait([&] { return planetA.snapshots.size() > 3; }, "Planet has no RTC snapshots");
+        planetB.wait([&] { return planetB.snapshots.size() > 3; }, "Second planet has no RTC snapshots");
+        player["sequence"] = 14; player["map"] = "planet";
+        player["position"][0] = 0.0; player["position"][1] = 38.0; player["position"][2] = 0.0;
+        player["avatarId"] = "female"; player["speed"] = 2.5;
+        planetA.channel->send(encode(player));
+        planetB.wait([&] { return !planetB.snapshots.rbegin()->second["players"].empty(); }, "Planet pose did not reach other visitor");
+        {
+            std::scoped_lock lock(planetB.mutex, first.mutex);
+            const auto snapshot = planetB.snapshots.rbegin()->second;
+            const auto pose = snapshot["players"][0];
+            check(snapshot["map"] == "planet" && snapshot["server_id"] == 0, "Planet snapshot metadata invalid");
+            check(pose["position"] == player["position"] && pose["avatarId"] == "female" && pose["speed"] == 2.5, "Planet snapshot lost appearance or pose");
+            for (const auto &p : first.snapshots.rbegin()->second["players"])
+                check(p["id"] != planetA.welcome["id"], "Planet pose leaked into private room");
+        }
+        player["sequence"] = 15; player["position"][1] = 0;
+        planetA.channel->send(encode(player));
+        std::this_thread::sleep_for(150ms);
+        { std::lock_guard lock(planetA.mutex); check(planetA.snapshots.rbegin()->second["ack"] == 14, "Planet accepted invalid radius"); }
+        planetA.stop(); planetB.stop();
+        Client negative(url, thread.getLoop(), token, -1);
+        negative.wait([&] { return negative.closed; }, "Negative room ID accepted"); negative.stop();
         check(request("/api/auth/logout", drogon::Post, {}, secondToken)->statusCode() == 200, "Logout failed");
         second.wait([&] { return second.closed; }, "Revoked WebSocket remained connected");
         check(second.authError, "Revoked session did not receive auth_error");

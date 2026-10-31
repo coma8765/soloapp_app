@@ -1,13 +1,14 @@
-import {avatar,orientation,vec} from './scene.js';
+import {orientation,vec} from './scene.js';
+import {LocalAvatar} from './local-avatar.js';
 import {WATER_RADIUS,clamp} from '../shared/world.js';
 const B=window.BABYLON;
 export class Player {
- constructor(scene,terrain,planet,canvas){
+ constructor(scene,terrain,planet,canvas,avatarId){
    this.inputEnabled=true;
    this.scene=scene;this.terrain=terrain;this.planet=planet;this.canvas=canvas;this.position=vec(terrain.spawn());this.forward=new B.Vector3(0,0,-1);this.pitch=-.18;this.radialSpeed=0;this.keys=new Set();this.third=false;this.overview=false;this.xr=false;this.angle=.6;this.speed=0;this.rotation=B.Quaternion.Identity();
    this.camera=new B.FreeCamera('player-view',this.position.clone(),scene);this.camera.inputs.clear();this.camera.minZ=.05;this.camera.maxZ=400;this.camera.fov=75*Math.PI/180;this.camera.rotationQuaternion=B.Quaternion.Identity();this.camera.updateUpVectorFromRotation=true;
    this.overviewCamera=new B.FreeCamera('overview',new B.Vector3(60,65,70),scene);this.overviewCamera.inputs.clear();this.overviewCamera.minZ=.1;this.overviewCamera.maxZ=400;this.overviewCamera.fov=55*Math.PI/180;
-   this.body=avatar(scene,0,true);this.body.setEnabled(false);scene.activeCamera=this.camera;
+   this.avatar=new LocalAvatar(scene,avatarId);this.body=this.avatar.root;scene.activeCamera=this.camera;
    canvas.addEventListener('click',()=>{if(this.inputEnabled&&!this.overview&&!this.xr)canvas.requestPointerLock()?.catch(()=>{});});
    window.addEventListener('keydown',e=>{if(!this.inputEnabled||e.target.closest?.('input,textarea,select,button,[contenteditable]'))return;if(['Tab','KeyW','KeyA','KeyS','KeyD','Space'].includes(e.code))e.preventDefault();this.keys.add(e.code);if(e.repeat)return;
      if(e.code==='Tab'&&!this.xr)this.toggleOverview();if(e.code==='KeyV'&&!this.xr&&!this.overview)this.third=!this.third;
@@ -46,8 +47,9 @@ export class Player {
    if(radius<=floor){radius=floor;this.radialSpeed=0;}
    this.position=u.scale(radius);
    this.forward.subtractInPlace(u.scale(B.Vector3.Dot(this.forward,u))).normalize();
-   this.rotation=orientation(this.forward,u);this.body.getChildMeshes().find(mesh=>mesh.name==='look-direction').rotation.x=this.pitch;this.body.position.copyFrom(this.position);this.body.rotationQuaternion.copyFrom(this.rotation);this.body.setEnabled(!this.xr&&(this.third||this.overview));
+   this.rotation=orientation(this.forward,u);this.body.position.copyFrom(this.position);this.body.rotationQuaternion.copyFrom(this.rotation);
    this.speed=dt?B.Vector3.Distance(before,this.position)/dt:0;
+   this.avatar.update(dt,this.speed,this.pitch,!this.xr&&(this.third||this.overview));
    const eye=this.position.add(u.scale(1.65)),look=this.forward.scale(Math.cos(this.pitch)).add(u.scale(Math.sin(this.pitch)));
    if(!this.xr){
      this.camera.position.copyFrom(eye);

@@ -8,6 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%237ba15b'/%3E%3Cellipse cx='29' cy='29' rx='14' ry='9' fill='%232c6b70'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/client/style.css">
   <script defer src="/vendor/babylon.js"></script>
+  <script defer src="/vendor/babylonjs.loaders.min.js"></script>
   <script type="module" src="/client/main.js"></script>
 </head>
 <body class="auth-required">
@@ -15,13 +16,13 @@
   <div id="underwater"></div>
   <header><div class="brand">MICRO <span>/</span> PLANET</div><div class="edition">СФЕРИЧЕСКИЙ МИР · BABYLON.JS</div></header>
   <aside id="telemetry"><div class="live"><i></i><span id="connection">Подготовка мира…</span></div><div id="stats"></div><div id="players"></div><section id="voice-controls" aria-label="Голосовой чат"><button id="microphone" aria-pressed="false" disabled>N · Микрофон выкл</button><button id="voice-playback" aria-pressed="false">Заглушить участников</button><div id="voice-status" role="status" aria-live="polite"></div><button id="voice-unlock" hidden>Включить голоса участников</button></section><button id="reconnect">Переподключиться ↗</button></aside>
-  <div id="toolbar"><button id="fullscreen" aria-pressed="false">⛶ На весь экран</button><button id="quality" aria-pressed="true">Графика · высокая</button><button id="vr-quality" aria-pressed="false" title="Качество при следующем входе в VR">VR · плавно</button><button id="sound">M · Звук включён</button><button id="vr" disabled>Проверка WebXR…</button><button id="login">Войти</button><button id="logout" hidden>Выйти</button></div>
+  <div id="toolbar"><button id="fullscreen" aria-pressed="false">⛶ На весь экран</button><button id="quality" aria-pressed="true">Графика · высокая</button><button id="vr-quality" aria-pressed="false" title="Качество при следующем входе в VR">VR · плавно</button><button id="sound">M · Звук включён</button><button id="vr" disabled>Проверка WebXR…</button><button id="settings" aria-label="Настройки">⚙ Настройки</button><button id="login">Войти</button><button id="logout" hidden>Выйти</button></div>
   <div id="display-status" role="status"></div>
   <main id="welcome"><div class="eyebrow">МАЛЕНЬКАЯ ПЛАНЕТА. БОЛЬШАЯ ПРОГУЛКА.</div><h1>Весь мир —<br>в нескольких шагах.</h1><p>Спуститесь к озеру, пройдите через берёзовую рощу<br>и вернитесь туда, откуда начали.</p><button id="explore" disabled>Загрузка мира…</button><div class="hint">WASD — идти · мышь — смотреть</div></main>
   <div id="crosshair">+</div>
   <footer><div id="location">Загрузка рельефа и моделей…</div><nav><button id="view">V <span>1-е / 3-е лицо</span></button><button id="overview">Tab <span>Вся планета</span></button><span>Esc · курсор</span></nav></footer>
   <div id="fatal" role="alert" hidden></div>
-  <dialog id="auth-dialog" aria-labelledby="auth-title" aria-describedby="auth-description">
+  <dialog class="spatial-dialog" id="auth-dialog" aria-labelledby="auth-title" aria-describedby="auth-description">
     <form id="auth-form" novalidate>
       <div class="auth-orbit" aria-hidden="true"><span></span></div>
       <div class="eyebrow">MICRO / PLANET <span class="auth-local">ЛОКАЛЬНО</span></div>
@@ -38,6 +39,16 @@
       <div class="auth-divider"></div>
       <button id="auth-walk" type="button">Продолжить прогулку <span>↗</span></button>
       <div class="auth-walk-hint">WASD + мышь · Esc — вернуться ко входу</div>
+    </form>
+  </dialog>
+  <dialog class="spatial-dialog" id="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form">
+      <h2 id="settings-title">Настройки</h2>
+      <fieldset id="avatar-options"><legend>Аватар</legend></fieldset>
+      <p>Выбор сохранится в этом браузере.</p>
+      <p id="settings-status" role="status" aria-live="polite"></p>
+      <button id="settings-save" type="submit">Сохранить</button>
+      <button id="settings-close" type="button">Закрыть</button>
     </form>
   </dialog>
 </body>

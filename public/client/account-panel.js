@@ -1,12 +1,15 @@
+import { AVATARS, findAvatar } from './avatar-catalog.js';
 const B = window.BABYLON;
 const $ = id => document.getElementById(id);
 const WIDTH = 1024, HEIGHT = 1120;
 
 // A single world-space surface for mouse, physical keyboard and XR target rays.
 // Native inputs remain the accessible source of truth and support paste/autofill.
-export class AuthPanel {
-  constructor(scene, auth, player, canvas, walk) {
-    Object.assign(this, { scene, auth, player, canvas, walk });
+export class AccountPanel {
+  constructor(scene, auth, player, canvas, walk, preferences) {
+    Object.assign(this, { scene, auth, player, canvas, walk, preferences });
+    this.mode = 'auth';
+    this.settingsBusy = false;
     this.field = 'email';
     this.shift = false;
     this.symbols = false;
@@ -27,6 +30,23 @@ export class AuthPanel {
     material.useAlphaFromDiffuseTexture = true;
     this.mesh.material = material;
     this.mesh.setEnabled(false);
+    this.createSettingsGear();
+    const choices = $('avatar-options');
+    for (const avatar of AVATARS) {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'radio'; input.name = 'avatar'; input.value = avatar.id;
+      input.addEventListener('change', () => this.chooseAvatar(avatar.id));
+      label.append(input, document.createTextNode(`${avatar.name} · ${avatar.description}`));
+      choices.append(label);
+    }
+    $('settings-form').onsubmit = event => { event.preventDefault(); void this.applySettings(); };
+    $('settings-close').onclick = () => this.closeSettings();
+    $('settings-dialog').addEventListener('cancel', event => { event.preventDefault(); this.closeSettings(); });
+    $('settings-dialog').addEventListener('close', () => { if (!this.settingsOpen) this.player.inputEnabled = true; });
+    window.addEventListener('keydown', event => {
+      if (event.code === 'Escape' && this.settingsOpen) { event.preventDefault(); this.closeSettings(); }
+    });
     document.body.classList.add('spatial-ui');
     for (const name of ['email', 'password']) {
       $(`auth-${name}`).addEventListener('focus', () => { this.field = name; });
@@ -43,9 +63,99 @@ export class AuthPanel {
       this.activate(this.targetAt(hit));
     }, true);
     window.addEventListener('resize', () => { if (this.visible && !this.xr) this.present(); });
+    this.auth.onSignIn = ({ registered }) => {
+      if (registered || !this.preferences.saved) this.openSettings(true);
+    };
+    if (this.auth.token && !this.preferences.saved) this.openSettings(true);
   }
 
   get visible() { return this.mesh.isEnabled(); }
+  get settingsOpen() { return $('settings-dialog').open; }
+  get busy() { return this.mode === 'settings' ? this.settingsBusy : this.auth.busy; }
+
+  openSettings(onboarding = false) {
+    if (this.settingsBusy) return;
+    this.onboarding = onboarding;
+    this.mode = 'settings';
+    this.draft = this.player.avatar.id || this.preferences.id;
+    $('settings-title').textContent = onboarding ? 'Выберите аватар' : 'Настройки';
+    $('settings-status').textContent = '';
+    $('settings-save').textContent = onboarding ? 'Выбрать и продолжить' : 'Сохранить';
+    $('auth-dialog').close();
+    if (!this.settingsOpen) $('settings-dialog').show();
+    this.chooseAvatar(this.draft);
+    document.activeElement?.blur();
+    if (!this.xr) $('avatar-options').querySelector('input:checked')?.focus({ preventScroll: true });
+    this.player.keys.clear();
+    this.player.inputEnabled = false;
+    document.exitPointerLock();
+    this.recenter = true;
+    this.sync();
+  }
+
+  closeSettings() {
+    if (this.settingsBusy) return;
+    $('settings-dialog').close();
+    this.player.inputEnabled = true;
+    this.player.keys.clear();
+    document.activeElement?.blur();
+    this.sync();
+  }
+
+  chooseAvatar(id) {
+    if (this.settingsBusy || !findAvatar(id)) return;
+    this.draft = id;
+    for (const input of $('avatar-options').querySelectorAll('input')) input.checked = input.value === id;
+    $('settings-status').textContent = '';
+    this.lastState = '';
+  }
+
+  async applySettings() {
+    if (this.settingsBusy || !this.settingsOpen) return;
+    this.settingsBusy = true;
+    $('settings-save').disabled = $('settings-close').disabled = true;
+    $('avatar-options').disabled = true;
+    $('settings-status').textContent = 'Загружаем аватар…';
+    this.sync();
+    try {
+      if (!await this.player.avatar.select(this.draft)) {
+        $('settings-status').textContent = 'Не удалось загрузить аватар. Попробуйте ещё раз.';
+        return;
+      }
+      const saved = this.preferences.save(this.draft);
+      $('settings-status').textContent = saved ? 'Выбор сохранён.' : 'Аватар изменён, но браузер не разрешил сохранить выбор.';
+      if (saved) { this.settingsBusy = false; this.closeSettings(); }
+    } finally {
+      this.settingsBusy = false;
+      $('settings-save').disabled = $('settings-close').disabled = false;
+      $('avatar-options').disabled = false;
+      this.sync();
+    }
+  }
+
+  toggleMenu() {
+    if (this.settingsOpen) this.closeSettings();
+    else if ($('auth-dialog').open) { $('auth-dialog').close(); this.sync(); }
+    else if (this.auth.token) this.openSettings();
+    else { this.auth.require(); this.recenter = true; this.sync(); }
+  }
+
+  createSettingsGear() {
+    this.gear = B.MeshBuilder.CreatePlane('settings-gear', { size: .13 }, this.scene);
+    this.gear.renderingGroupId = 3;
+    const texture = new B.DynamicTexture('settings-gear-texture', { width: 256, height: 256 }, this.scene, true);
+    texture.hasAlpha = true;
+    const c = texture.getContext();
+    c.fillStyle = '#173b43'; c.beginPath(); c.roundRect(3, 3, 250, 250, 45); c.fill();
+    c.fillStyle = '#eaf6f6'; c.font = '180px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('⚙', 128, 130);
+    texture.update();
+    const material = new B.StandardMaterial('settings-gear-material', this.scene);
+    material.diffuseTexture = texture; material.emissiveColor = B.Color3.White();
+    material.disableLighting = true; material.backFaceCulling = false;
+    this.gear.material = material;
+    this.gear.setEnabled(false);
+    this.gearTarget = { id: 'settings-gear', action: () => this.settingsOpen ? this.closeSettings() : this.openSettings() };
+  }
 
   present() {
     const camera = this.scene.activeCamera;
@@ -62,7 +172,16 @@ export class AuthPanel {
   }
 
   sync() {
-    const visible = $('auth-dialog').open && !this.auth.token;
+    document.body.classList.toggle('settings-open', this.settingsOpen);
+    this.gear.setEnabled(!!this.xr);
+    if (this.xr) {
+      this.gear.parent = this.scene.activeCamera;
+      this.gear.position.set(-.42, -.25, -1);
+    }
+    // Both forms share this mesh, drawing primitives, picking and XR rays.
+    const mode = this.settingsOpen ? 'settings' : 'auth';
+    if (mode !== this.mode) { this.mode = mode; this.lastState = ''; this.recenter = true; }
+    const visible = this.settingsOpen || ($('auth-dialog').open && !this.auth.token);
     if (visible !== this.visible) {
       this.mesh.setEnabled(visible);
       if (visible) this.present();
@@ -70,7 +189,8 @@ export class AuthPanel {
     }
     if (!visible) return;
     if (this.recenter) { this.present(); this.recenter = false; }
-    const state = JSON.stringify([this.field, this.shift, this.symbols, this.hover, this.auth.busy,
+    const state = JSON.stringify([this.mode, this.draft, this.onboarding, this.settingsBusy, $('settings-status').textContent,
+      this.field, this.shift, this.symbols, this.hover, this.auth.busy,
       this.auth.registration, $('auth-email').value, $('auth-password').value, $('auth-error').textContent]);
     if (state !== this.lastState) { this.lastState = state; this.draw(); }
   }
@@ -95,6 +215,11 @@ export class AuthPanel {
     };
     box(3, 3, WIDTH - 6, HEIGHT - 6, '#102c3bee', '#8fbbc6');
     text('MICRO / PLANET', 48, 59, 24, '#c0e6dc');
+    if (this.mode === 'settings') {
+      this.drawSettings({ box, text, button });
+      this.texture.update();
+      return;
+    }
     text('ЛОКАЛЬНАЯ ПРОГУЛКА', 642, 59, 21, '#a8c4cf');
     text(this.auth.registration ? 'Присоединиться к миру' : 'С возвращением', 48, 118, 44);
     text('Планета уже здесь. Войдите, чтобы встретить других.', 48, 165, 27, '#adc8d2');
@@ -136,6 +261,25 @@ export class AuthPanel {
     this.texture.update();
   }
 
+  drawSettings({ box, text, button }) {
+    text(this.onboarding ? 'Выберите аватар' : 'Настройки', 48, 135, 48);
+    text('Ваш образ в мире', 48, 195, 30, '#adc8d2');
+    text('Выбор сохранится в этом браузере.', 48, 240, 26, '#adc8d2');
+    AVATARS.forEach((avatar, index) => {
+      const y = 285 + index * 135, selected = avatar.id === this.draft;
+      button('avatar-' + avatar.id, `${selected ? '●' : '○'}  ${avatar.name}`, 48, y, 928, 118,
+        () => this.chooseAvatar(avatar.id), selected);
+      text(avatar.description, 88, y + 100, 24, selected ? '#254e4d' : '#adc8d2');
+    });
+    const message = $('settings-status').textContent;
+    text(message.slice(0, 60), 48, 735, 25, '#ffd1b8');
+    text(message.slice(60), 48, 772, 25, '#ffd1b8');
+    button('settings-save', this.settingsBusy ? 'Загружаем…' : $('settings-save').textContent,
+      48, 830, 928, 72, () => { void this.applySettings(); }, true);
+    button('settings-close', 'Закрыть', 48, 926, 928, 64, () => this.closeSettings());
+    text(this.xr ? 'Луч + триггер · B — закрыть' : 'Мышь / клавиатура · Esc — закрыть', 48, 1080, 24, '#adc8d2');
+  }
+
   write(key) {
     if (this.auth.busy) return;
     const input = $(`auth-${this.field}`);
@@ -147,11 +291,14 @@ export class AuthPanel {
   }
 
   activate(target) {
-    if (!target || this.auth.busy) return;
+    if (!target || this.busy) return;
     target.action(); this.sync();
   }
 
   targetAt(pick) {
+    if (!pick?.hit) return null;
+    if (pick.pickedMesh === this.gear) return this.gear.isEnabled() ? this.gearTarget : null;
+    if (pick.pickedMesh !== this.mesh || !this.visible) return null;
     const uv = pick?.getTextureCoordinates();
     if (!uv) return null;
     const x = uv.x * WIDTH, y = (1 - uv.y) * HEIGHT;
@@ -175,14 +322,18 @@ export class AuthPanel {
     return new B.Ray(B.Vector3.TransformCoordinates(new B.Vector3(p.x, p.y, p.z), world), B.Vector3.TransformNormal(direction, world).normalize(), 5);
   }
 
+  isInteractiveMesh(mesh) {
+    return (mesh === this.mesh && this.visible) || (mesh === this.gear && this.gear.isEnabled());
+  }
+
   updateXR(frame, referenceSpace, origin) {
-    if (!this.visible || !this.xr) { this.hideRays(); return; }
+    if (!this.xr || (!this.visible && !this.gear.isEnabled())) { this.hideRays(); return; }
     this.hover = '';
     for (const visual of this.rays.values()) visual.setEnabled(false);
     for (const source of frame.session.inputSources) {
       const ray = this.xrRay(frame, source, referenceSpace, origin);
       if (!ray) continue;
-      const pick = this.scene.pickWithRay(ray, mesh => mesh === this.mesh);
+      const pick = this.scene.pickWithRay(ray, mesh => this.isInteractiveMesh(mesh));
       const target = this.targetAt(pick);
       if (target) this.hover = target.id;
       const points = [ray.origin, pick?.hit ? pick.pickedPoint : ray.origin.add(ray.direction.scale(2))];
@@ -198,9 +349,9 @@ export class AuthPanel {
   }
 
   selectXR(event, referenceSpace, origin) {
-    if (!this.visible) return;
+    if (!this.visible && !this.gear.isEnabled()) return;
     const ray = this.xrRay(event.frame, event.inputSource, referenceSpace, origin);
-    if (ray) this.activate(this.targetAt(this.scene.pickWithRay(ray, mesh => mesh === this.mesh)));
+    if (ray) this.activate(this.targetAt(this.scene.pickWithRay(ray, mesh => this.isInteractiveMesh(mesh))));
   }
 
   hideRays() { for (const line of this.rays.values()) line.setEnabled(false); }

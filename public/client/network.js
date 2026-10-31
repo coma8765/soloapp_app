@@ -3,8 +3,9 @@ import { avatar, vec } from './scene.js';
 const B = window.BABYLON;
 
 export class Network {
-  constructor(scene, player, fish, planet, auth, onAuthRequired) {
-    Object.assign(this, { scene, player, fish, planet, auth, onAuthRequired });
+  constructor(scene, player, fish, planet, auth, onAuthRequired, voice = null) {
+    Object.assign(this, { scene, player, fish, planet, auth, onAuthRequired, voice });
+    this.rtcConfig = { iceServers: [] };
     this.remotes = new Map();
     this.peers = new Map();
     this.id = 0;
@@ -25,6 +26,7 @@ export class Network {
   }
 
   clearPeers() {
+    this.voice?.disconnect();
     for (const peer of this.peers.values()) peer.pc.close();
     this.peers.clear();
     this.worldPC?.close();
@@ -92,6 +94,8 @@ export class Network {
     if (type === 'auth_error') { this.requireAuth(); return; }
     if (type === 'welcome') {
       this.id = message.id;
+      this.rtcConfig = message.rtc_config || { iceServers: [] };
+      if (this.voice) { this.voice.online = true; this.voice.onChange(); }
       this.sequence = 0;
       this.status = 'В сети';
       for (const id of message.peers) this.addPeer(id);
@@ -99,13 +103,19 @@ export class Network {
     }
     if (type === 'joined') this.addPeer(message.id);
     if (type === 'left') {
+      this.voice?.remove(message.id);
       this.peers.get(message.id)?.pc.close();
       this.peers.delete(message.id);
       this.remotes.get(message.id)?.node.dispose(false, true);
       this.remotes.delete(message.id);
       this.planet.actors.delete(message.id);
     }
-    if (type === 'sdp' || type === 'ice') this.peerSignal(message).catch(error => console.warn('Peer negotiation:', error));
+    if (type === 'sdp' || type === 'ice') {
+      const peer = this.peers.get(message.from);
+      if (peer) peer.signals = peer.signals.then(() => {
+        if (this.peers.get(message.from) === peer) return this.peerSignal(message);
+      }).catch(error => console.warn('Peer negotiation:', error));
+    }
     if (type === 'server_sdp' && this.worldPC) {
       const pc = this.worldPC;
       pc.setRemoteDescription({ type: message.description, sdp: message.sdp }).then(async () => {
@@ -122,10 +132,12 @@ export class Network {
 
   addPeer(id) {
     if (this.peers.has(id) || id === this.id) return;
-    const pc = new RTCPeerConnection({ iceServers: [] });
-    this.peers.set(id, { pc, dc: null, control: null, ice: [], ping: null, pingAt: 0 });
+    const pc = new RTCPeerConnection(this.rtcConfig);
+    const peer = { pc, dc: null, control: null, ice: [], ping: null, pingAt: 0, signals: Promise.resolve() };
+    this.peers.set(id, peer);
+    this.voice?.attach(id, pc, this.id < id);
     pc.onicecandidate = event => {
-      if (event.candidate) this.send({ type: 'ice', to: id, media: event.candidate.sdpMid,
+      if (event.candidate && this.peers.get(id) === peer) this.send({ type: 'ice', to: id, media: event.candidate.sdpMid,
         index: event.candidate.sdpMLineIndex, candidate: event.candidate.candidate });
     };
     pc.ondatachannel = event => this.bindPeer(id, event.channel);
@@ -133,10 +145,19 @@ export class Network {
     if (this.id < id) {
       this.bindPeer(id, pc.createDataChannel('players-v1', { ordered: false, maxRetransmits: 0 }));
       this.bindPeer(id, pc.createDataChannel('control-v1', { ordered: true }));
-      pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-        this.send({ type: 'sdp', to: id, description: 'offer', sdp: pc.localDescription.sdp });
-      }).catch(() => {});
+      this.offerPeer(id);
     }
+  }
+
+  async offerPeer(id) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    try {
+      await this.voice?.peers.get(id)?.updates;
+      if (this.peers.get(id) !== peer) return;
+      await peer.pc.setLocalDescription(await peer.pc.createOffer());
+      if (this.peers.get(id) === peer) this.send({ type: 'sdp', to: id, description: 'offer', sdp: peer.pc.localDescription.sdp });
+    } catch (error) { console.warn('Peer offer:', error); }
   }
 
   bindPeer(id, channel) {
@@ -157,7 +178,6 @@ export class Network {
   }
 
   async peerSignal(message) {
-    this.addPeer(message.from);
     const peer = this.peers.get(message.from);
     if (!peer) return;
     if (message.type === 'ice') {
@@ -167,10 +187,12 @@ export class Network {
       return;
     }
     await peer.pc.setRemoteDescription({ type: message.description, sdp: message.sdp });
+    if (this.peers.get(message.from) !== peer) return;
     for (const candidate of peer.ice.splice(0)) await peer.pc.addIceCandidate(candidate);
     if (message.description === 'offer') {
+      await this.voice?.prepareAnswer(message.from);
       await peer.pc.setLocalDescription(await peer.pc.createAnswer());
-      this.send({ type: 'sdp', to: message.from, description: 'answer', sdp: peer.pc.localDescription.sdp });
+      if (this.peers.get(message.from) === peer) this.send({ type: 'sdp', to: message.from, description: 'answer', sdp: peer.pc.localDescription.sdp });
     }
   }
 
@@ -183,7 +205,7 @@ export class Network {
     this.fish.reset();
     this.worldTransport = 'соединение WebRTC…';
     this.send({ type: 'server_reset' });
-    const pc = new RTCPeerConnection({ iceServers: [] });
+    const pc = new RTCPeerConnection(this.rtcConfig);
     this.worldPC = pc;
     const channel = pc.createDataChannel('world-v1', { negotiated: true, id: 0, ordered: false, maxRetransmits: 0 });
     this.worldChannel = channel;

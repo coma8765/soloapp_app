@@ -1,6 +1,8 @@
 #include "simulation.hpp"
 #include "auth.hpp"
 #include "auth_http.hpp"
+#include "rtc_config.hpp"
+#include "local_rtc_relay.hpp"
 #include <drogon/drogon.h>
 #include <drogon/WebSocketController.h>
 #include <rtc/rtc.hpp>
@@ -10,6 +12,7 @@
 #include <memory>
 #include <sstream>
 #include <filesystem>
+#include <cstdlib>
 
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -41,7 +44,7 @@ struct Session {
 
 class Game {
 public:
-    Game(const std::string &navigation, AuthStore &auth_) : simulation(navigation), auth(auth_) {}
+    Game(const std::string &navigation, AuthStore &auth_, const Json::Value &rtcConfig_) : simulation(navigation), auth(auth_), rtcConfig(rtcConfig_) {}
 
     void send(const std::shared_ptr<Session> &session, const Json::Value &message) {
         if (!session->closed && session->socket->connected()) session->socket->send(jsonText(message));
@@ -76,6 +79,8 @@ public:
         welcome["type"] = "welcome";
         welcome["id"] = session->id;
         welcome["world_protocol"] = 1;
+        welcome["voice_protocol"] = 1;
+        welcome["rtc_config"] = rtcConfig;
         welcome["user_id"] = Json::Int64(identity.id);
         welcome["expires_at"] = Json::Int64(identity.expires);
         welcome["peers"] = Json::Value(Json::arrayValue);
@@ -127,6 +132,20 @@ public:
     void startPeer(const std::shared_ptr<Session> &session) {
         rtc::Configuration config;
         config.disableAutoNegotiation = true;
+        for (const auto &entry : rtcConfig["iceServers"]) {
+            auto urls = entry["urls"];
+            if (urls.isString()) { urls = Json::Value(Json::arrayValue); urls.append(entry["urls"]); }
+            for (const auto &url : urls) {
+                rtc::IceServer server(url.asString());
+                // The bundled libjuice supports TURN over UDP.
+                if (server.type == rtc::IceServer::Type::Turn) {
+                    if (server.relayType != rtc::IceServer::RelayType::TurnUdp) continue;
+                    server.username = entry["username"].asString();
+                    server.password = entry["credential"].asString();
+                }
+                config.iceServers.push_back(server);
+            }
+        }
         session->peer = std::make_shared<rtc::PeerConnection>(config);
         std::weak_ptr<Session> weak = session;
         const int generation = session->generation;
@@ -267,6 +286,7 @@ public:
 private:
     Simulation simulation;
     AuthStore &auth;
+    Json::Value rtcConfig;
     std::map<const drogon::WebSocketConnection *, std::weak_ptr<drogon::WebSocketConnection>> pending;
     std::map<int, std::shared_ptr<Session>> sessions;
     int nextId = 2;
@@ -297,6 +317,8 @@ int main(int argc, char **argv) {
     std::string navigation = "server/data/lakes.json";
     std::string webRoot = "public";
     std::string authPath = "runtime/auth.sqlite3";
+    const auto *rtcConfigEnv = std::getenv("PLANET_RTC_CONFIG");
+    std::string rtcConfigPath = rtcConfigEnv ? rtcConfigEnv : "";
     try {
         for (int i = 1; i < argc; ++i) {
             const std::string argument = argv[i];
@@ -304,6 +326,7 @@ int main(int argc, char **argv) {
             else if (argument.rfind("--nav=", 0) == 0) navigation = argument.substr(6);
             else if (argument.rfind("--web=", 0) == 0) webRoot = argument.substr(6);
             else if (argument.rfind("--auth-db=", 0) == 0) authPath = argument.substr(10);
+            else if (argument.rfind("--rtc-config=", 0) == 0) rtcConfigPath = argument.substr(13);
             else throw std::runtime_error("Unknown argument: " + argument);
         }
         if (port < 1 || port > 65535) throw std::runtime_error("Invalid port");
@@ -313,7 +336,17 @@ int main(int argc, char **argv) {
         if (authPath != ":memory:" && !relativeDb.empty() && *relativeDb.begin() != "..") throw std::runtime_error("Auth database must be outside the public directory");
         AuthStore auth(authPath);
         installAuthRoutes(auth);
-        game = std::make_unique<Game>(navigation, auth);
+        if (!rtcConfigPath.empty()) {
+            const auto relativeConfig = std::filesystem::weakly_canonical(rtcConfigPath).lexically_relative(std::filesystem::weakly_canonical(webRoot));
+            if (!relativeConfig.empty() && *relativeConfig.begin() != "..") throw std::runtime_error("RTC config must be outside the public directory");
+        }
+        std::unique_ptr<LocalRtcRelay> localRelay;
+        auto rtcConfig = loadRtcConfig(rtcConfigPath);
+        if (rtcConfigPath.empty()) {
+            localRelay = std::make_unique<LocalRtcRelay>();
+            rtcConfig = localRelay->configuration();
+        }
+        game = std::make_unique<Game>(navigation, auth, rtcConfig);
         drogon::app().setLogLevel(trantor::Logger::kWarn).setThreadNum(1).setClientMaxWebSocketMessageSize(65536).addListener("127.0.0.1", port);
         drogon::app().setDocumentRoot(std::filesystem::absolute(webRoot).string()).setHomePage("index.html")
             .setFileTypes({"html", "js", "css", "json", "svg", "gz", "glb"}).setStaticFilesCacheTime(-1);

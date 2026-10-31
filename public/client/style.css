@@ -9,3 +9,5 @@
 @media(max-width:750px){#auth-dialog{left:16px;top:50%}.spatial-ui .spatial-dialog{left:0;top:0}#toolbar{max-width:calc(100vw - 160px)}#telemetry{top:160px;width:185px}.spatial-ui.auth-required:not(.playing) #telemetry{display:none}}
 
 .settings-open #welcome{display:none}
+
+#voice-controls{margin-top:12px;border-top:1px solid #edf4de22;padding-top:10px}#voice-controls button{width:100%;margin:4px 0;font-size:11px}#microphone[aria-pressed="true"]{background:#d4e39c;color:#203b31}#voice-status{font-size:11px;line-height:1.5;color:#d2e2dc;margin-top:6px}

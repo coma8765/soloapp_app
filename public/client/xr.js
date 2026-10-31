@@ -36,7 +36,7 @@ export class XRView {
    this.hud=B.MeshBuilder.CreatePlane('VR statistics',{width:.48,height:.28},this.scene);this.hud.parent=this.helper.camera;this.hud.position.set(.36,-.25,-1);this.hud.isPickable=false;
    this.texture=new B.DynamicTexture('VR HUD',{width:768,height:448},this.scene,false);const mat=new B.StandardMaterial('VR HUD material',this.scene);mat.diffuseTexture=this.texture;mat.emissiveColor=B.Color3.White();mat.disableLighting=true;mat.backFaceCulling=false;this.hud.material=mat;this.hud.setEnabled(false);
  }
- enter(){this.active=true;this.planet.setXRQuality(true);this.player.xr=true;this.player.keys.clear();this.savedGrass=this.planet.grass.thinInstanceCount;this.planet.grass.thinInstanceCount=Math.min(this.highQuality?12000:6000,this.savedGrass);this.hud.setEnabled(this.visible);document.body.classList.add('in-vr');this.armed=true;this.aDown=false;this.bDown=false;
+ enter(){this.active=true;this.planet.setXRQuality(true);this.player.xr=true;this.player.keys.clear();this.savedGrass=this.planet.grass.thinInstanceCount;this.planet.grass.thinInstanceCount=Math.min(this.highQuality?12000:6000,this.savedGrass);this.hud.setEnabled(this.visible);document.body.classList.add('in-vr');this.armed=true;this.aDown=false;this.bDown=false;this.xDown=false;
    if(this.authPanel){this.authPanel.xr=true;this.authPanel.recenter=true;if(!this.authPanel.auth.token)this.authPanel.auth.require();}
  }
  exit(){if(this.active){this.planet.setXRQuality(false);this.planet.grass.thinInstanceCount=this.savedGrass;this.active=false;this.player.xr=false;this.hud.setEnabled(false);document.body.classList.remove('in-vr');}
@@ -45,11 +45,12 @@ export class XRView {
  }
  input(){if(!this.active)return null;
    const session=this.helper.sessionManager.session;if(session.visibilityState!=='visible'){this.armed=true;this.aDown=false;return B.Vector3.Zero();}
-   let x=0,y=0,turn=0,pressed=false,menu=false;
+   let x=0,y=0,turn=0,pressed=false,menu=false,mic=false;
    for(const source of session.inputSources){const gp=source.gamepad;if(!gp)continue;const axes=gp.axes;
-     if(source.handedness==='left'){x=axes.length>=4?axes[2]:axes[0]||0;y=axes.length>=4?axes[3]:axes[1]||0;}
+     if(source.handedness==='left'){mic=!!gp.buttons[4]?.pressed;x=axes.length>=4?axes[2]:axes[0]||0;y=axes.length>=4?axes[3]:axes[1]||0;}
      if(source.handedness==='right'){turn=axes.length>=4?axes[2]:axes[0]||0;pressed=!!gp.buttons[4]?.pressed;menu=!!gp.buttons[5]?.pressed;}
    }
+   if(mic&&!this.xDown)this.toggleMicrophone?.();this.xDown=mic;
    if(pressed&&!this.aDown){this.visible=!this.visible;this.hud.setEnabled(this.visible);}this.aDown=pressed;
    if(menu&&!this.bDown)this.authPanel?.toggleMenu();this.bDown=menu;
    // Menu buttons remain usable while settings suspend locomotion.

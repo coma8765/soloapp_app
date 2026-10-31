@@ -1,4 +1,5 @@
 import { validState } from '../shared/world.js';
+import { ROOM_MAP, validRoomPosition } from '../shared/room.js';
 import { avatar, vec } from './scene.js';
 const B = window.BABYLON;
 
@@ -17,8 +18,9 @@ export class Network {
     this.lastSend = 0;
     this.lastPing = 0;
     this.worldAttempt = 0;
+    this.worldReceived = 0;
+    this.worldTick = -1;
     this.generation = 0;
-    if (auth.token) this.connect();
   }
 
   send(message) {
@@ -36,6 +38,8 @@ export class Network {
     this.remotes.clear();
     this.planet.actors.clear();
     this.fish.reset();
+    this.worldReceived = 0;
+    this.worldTick = -1;
   }
 
   disconnect() {
@@ -45,13 +49,16 @@ export class Network {
     this.clearPeers();
     this.ping = null;
     this.id = 0;
+    this.serverId = 0;
     this.status = 'Локальная прогулка';
     this.worldTransport = 'доступны после входа';
   }
 
-  connect() {
+  connect(serverId = this.serverId) {
     this.disconnect();
     if (!this.auth.token || Date.now() >= this.auth.expiresAt) { this.requireAuth(); return; }
+    if (!Number.isSafeInteger(serverId) || serverId <= 0) { this.onRoomRequired?.(); return; }
+    this.serverId = serverId;
     const generation = this.generation;
     this.status = 'Подключение…';
     this.worldTransport = 'ожидание';
@@ -65,7 +72,7 @@ export class Network {
     }
     catch { this.status = 'Некорректный адрес сервера'; return; }
     this.socket.onopen = () => {
-      if (generation === this.generation) this.socket.send(JSON.stringify({ type: 'auth', token: this.auth.token }));
+      if (generation === this.generation) this.socket.send(JSON.stringify({ type: 'auth', token: this.auth.token, server_id: serverId }));
     };
     this.socket.onmessage = event => {
       if (generation !== this.generation) return;
@@ -75,6 +82,7 @@ export class Network {
     this.socket.onclose = event => {
       if (generation !== this.generation) return;
       if (event.code === 1008 && event.reason === 'Unauthorized') { this.requireAuth(); return; }
+      if (event.code === 1008 && event.reason === 'Room unavailable') { this.roomRequired(); return; }
       this.status = event.reason === 'Room is full' ? 'Комната заполнена · 8 игроков' : 'Нет соединения · переподключитесь';
       this.worldTransport = 'отключён';
       this.id = 0;
@@ -89,10 +97,17 @@ export class Network {
     this.onAuthRequired();
   }
 
+  roomRequired() {
+    this.disconnect();
+    this.onRoomRequired?.();
+  }
+
   message(message) {
     const { type } = message;
     if (type === 'auth_error') { this.requireAuth(); return; }
+    if (type === 'room_error') { this.roomRequired(); return; }
     if (type === 'welcome') {
+      if (message.map !== this.player.worldMap || !validRoomPosition(message.spawn)) { this.roomRequired(); return; }
       this.id = message.id;
       this.rtcConfig = message.rtc_config || { iceServers: [] };
       if (this.voice) { this.voice.online = true; this.voice.onChange(); }
@@ -166,8 +181,11 @@ export class Network {
     if (channel.label === 'control-v1') peer.control = channel;
     else if (channel.label === 'players-v1') peer.dc = channel;
     else { channel.close(); return; }
-    channel.onopen = () => channel.send(JSON.stringify(this.player.state(++this.sequence)));
+    channel.onopen = () => {
+      if (this.peers.get(id) === peer && channel.readyState === 'open') channel.send(JSON.stringify(this.player.state(++this.sequence)));
+    };
     channel.onmessage = event => {
+      if (this.peers.get(id) !== peer) return;
       try {
         const message = JSON.parse(event.data);
         if (message.type === 'state') { this.apply(id, message); this.rx++; }
@@ -217,9 +235,12 @@ export class Network {
       if (this.worldPC !== pc) return;
       try {
         const message = JSON.parse(event.data);
-        if (message.type !== 'fish') return;
+        if (message.type !== 'world' || message.map !== ROOM_MAP || message.server_id !== this.serverId || !Number.isSafeInteger(message.sequence) || message.sequence <= this.worldTick) return;
         this.worldTransport = 'WebRTC';
-        this.fish.snapshot(message);
+        this.worldReceived = performance.now(); this.worldTick = message.sequence;
+        if (Array.isArray(message.players)) for (const state of message.players) {
+          if (state.id !== this.id && this.peers.has(state.id)) { this.apply(state.id, state); this.rx++; }
+        }
         if (Number.isFinite(message.echo)) {
           this.ping = Math.max(0, Math.round(performance.now() - message.echo));
           this.pingAt = performance.now();
@@ -233,7 +254,7 @@ export class Network {
   }
 
   apply(id, state) {
-    if (!validState(state)) return;
+    if (!validState(state, this.player.worldMap)) return;
     let remote = this.remotes.get(id);
     if (!remote) {
       remote = { node: avatar(this.scene, id), sequence: -1, last: 0 };
@@ -265,15 +286,14 @@ export class Network {
       }
       if (now - this.lastWorldSend >= 100 && this.worldChannel?.readyState === 'open') {
         this.lastWorldSend = now;
-        this.worldChannel.send(JSON.stringify({ type: 'player', sequence: ++this.worldSequence,
-          sent: now, position: this.player.position.asArray() }));
+        this.worldChannel.send(JSON.stringify({ ...this.player.state(++this.sequence), type: 'player', sent: now }));
       }
       if (now - this.lastPing >= 1000) {
         this.lastPing = now;
         for (const peer of this.peers.values()) if (peer.control?.readyState === 'open') peer.control.send(JSON.stringify({ type: 'ping', sent: now }));
       }
-      if (now - Math.max(this.worldAttempt, this.fish.last) > 10000) this.startWorld();
-      if (this.fish.last && now - this.fish.last > 3000) this.worldTransport = 'ожидание сервера…';
+      if (now - Math.max(this.worldAttempt, this.worldReceived) > 10000) this.startWorld();
+      if (this.worldReceived && now - this.worldReceived > 3000) this.worldTransport = 'ожидание сервера…';
     }
     for (const [id, remote] of this.remotes) {
       remote.node.position = B.Vector3.Lerp(remote.node.position, remote.target, 1 - Math.exp(-dt * 12));

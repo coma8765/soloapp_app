@@ -19,7 +19,9 @@ export class NatureAudio {
    return buffer;
  }
  toggle(){this.muted=!this.muted;if(this.master)this.master.gain.setTargetAtTime(this.muted?0:1,this.context.currentTime,.05);}
- update(player,underwater){if(!this.ready)return;const ctx=this.context,t=ctx.currentTime,wet=player.position.length()<WATER_RADIUS-.08;
+ update(player,underwater){if(!this.ready)return;const ctx=this.context,t=ctx.currentTime;
+   if(player.worldMap==='white-room'){for(const layer of this.layers)layer.gain.gain.setTargetAtTime(0,t,.18);this.wasWet=false;return;}
+   const wet=player.position.length()<WATER_RADIUS-.08;
    if(performance.now()>this.nextShore){this.shore=this.terrain.shoreDistance(player.position.asArray());this.nextShore=performance.now()+250;}
    const moving=Math.min(1,player.speed/5.5),near=1-smooth(0,24,this.shore),gains=[underwater?.01:.04,.09*near*near,moving*(wet?0:.24),moving*(wet?.3:0)];
    this.layers.forEach((l,i)=>l.gain.gain.setTargetAtTime(gains[i],t,.18));this.layers[1].source.playbackRate.setTargetAtTime(underwater?.65:1,t,.2);this.layers[3].source.playbackRate.setTargetAtTime(underwater?.68:1,t,.2);this.filter.frequency.setTargetAtTime(underwater?700:16000,t,.3);

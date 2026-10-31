@@ -36,6 +36,7 @@ export class PlanetScene {
    scene.clearColor=new B.Color4(.64,.77,.82,1);
    const hemi=new B.HemisphericLight('sky',new B.Vector3(0,1,0),scene);hemi.intensity=.75;hemi.groundColor=new B.Color3(.3,.38,.4);
    const sun=new B.DirectionalLight('sun',new B.Vector3(.5,-1,-.4),scene);sun.intensity=.9;
+   this.lights=[hemi,sun];this.visible=true;
    this.terrain=meshData('Original planet terrain',sphereData(data),scene);this.terrain.material=this.material(0);this.terrain.isPickable=true;
    this.bark=meshData('Original birch trunks and branches',data.bark,scene);this.bark.material=this.material(1);this.bark.isPickable=true;
    this.leaves=meshData('Original serrated birch leaves',data.leaf,scene);this.leaves.material=this.material(2);this.leaves.thinInstanceSetBuffer('matrix',new Float32Array(data.leaves),16,true);this.leaves.isPickable=false;
@@ -60,14 +61,16 @@ export class PlanetScene {
  material(kind){const m=natureMaterial(this.scene,kind);this.materials.push(m);return m;}
  emitRipple(position,strength=1){this.ripples[this.rippleIndex]=[...position.normalizeToNew().scale(WATER_RADIUS).asArray(),this.time];this.strengths[this.rippleIndex]=strength;this.rippleIndex=(this.rippleIndex+1)%16;this.rippleCount++;}
  updateActor(id,position,dt){
+   if(!this.visible)return;
    const wet=position.length()<WATER_RADIUS+.03,old=this.actors.get(id)||{position:position.clone(),wet:false,cooldown:0};
    let cooldown=Math.max(0,old.cooldown-dt);
    if(wet&&!old.wet){this.emitRipple(position,1.4);cooldown=.35;}
    else if(wet&&B.Vector3.Distance(position,old.position)/Math.max(dt,.001)>.45&&cooldown===0){this.emitRipple(position,.75);cooldown=.42;}
    this.actors.set(id,{position:position.clone(),wet,cooldown});
  }
- setXRQuality(active){this.shadows=!active;this.shadowMap.renderList=active?[]:this.shadowCasters;for(const material of this.materials.slice(0,4))material.setFloat('shadowsEnabled',active?0:1);}
- update(dt,camera){this.time+=dt;
+ setVisible(visible){this.visible=visible;for(const mesh of [this.terrain,this.bark,this.leaves,this.grass,this.water])mesh.setEnabled(visible);for(const light of this.lights)light.setEnabled(visible);this.actors.clear();this.setXRQuality(this.xrQuality);}
+ setXRQuality(active){this.xrQuality=active;this.shadows=!active&&this.visible;this.shadowMap.renderList=this.shadows?this.shadowCasters:[];for(const material of this.materials.slice(0,4))material.setFloat('shadowsEnabled',this.shadows?1:0);}
+ update(dt,camera){if(!this.visible)return;this.time+=dt;
    const focus=camera.globalPosition.normalizeToNew().scale(38);
    this.shadowCamera.position=focus.add(new B.Vector3(-.5,1,.4).normalize().scale(70));this.shadowCamera.setTarget(focus);
    const matrix=this.shadowCamera.getViewMatrix().multiply(this.shadowCamera.getProjectionMatrix());

@@ -1,10 +1,12 @@
 import {orientation,vec} from './scene.js';
 import {LocalAvatar} from './local-avatar.js';
 import {WATER_RADIUS,clamp} from '../shared/world.js';
+import {ROOM_MAP,ROOM_PLAYER_LIMIT,roomSpawn} from '../shared/room.js';
 const B=window.BABYLON;
 export class Player {
  constructor(scene,terrain,planet,canvas,avatarId){
    this.inputEnabled=true;
+   this.worldMap='planet';this.roomColliders=[];
    this.scene=scene;this.terrain=terrain;this.planet=planet;this.canvas=canvas;this.position=vec(terrain.spawn());this.forward=new B.Vector3(0,0,-1);this.pitch=-.18;this.radialSpeed=0;this.keys=new Set();this.third=false;this.overview=false;this.xr=false;this.angle=.6;this.speed=0;this.rotation=B.Quaternion.Identity();
    this.camera=new B.FreeCamera('player-view',this.position.clone(),scene);this.camera.inputs.clear();this.camera.minZ=.05;this.camera.maxZ=400;this.camera.fov=75*Math.PI/180;this.camera.rotationQuaternion=B.Quaternion.Identity();this.camera.updateUpVectorFromRotation=true;
    this.overviewCamera=new B.FreeCamera('overview',new B.Vector3(60,65,70),scene);this.overviewCamera.inputs.clear();this.overviewCamera.minZ=.1;this.overviewCamera.maxZ=400;this.overviewCamera.fov=55*Math.PI/180;
@@ -19,20 +21,33 @@ export class Player {
    window.addEventListener('mousemove',e=>{if(!this.inputEnabled||document.pointerLockElement!==canvas||this.overview||this.xr)return;this.turn(-e.movementX*.0025);this.pitch=clamp(this.pitch-e.movementY*.0025,-85*Math.PI/180,85*Math.PI/180);});
    this.update(0);
  }
- turn(angle){this.forward.rotateByQuaternionToRef(B.Quaternion.RotationAxis(this.position.normalizeToNew(),angle),this.forward);}
+ up(){return this.worldMap===ROOM_MAP?B.Vector3.Up():this.position.normalizeToNew();}
+ turn(angle){this.forward.rotateByQuaternionToRef(B.Quaternion.RotationAxis(this.up(),angle),this.forward);}
+ setMap(map,position){this.worldMap=map;this.position=vec(position);this.forward.set(0,0,-1);this.pitch=-.12;this.radialSpeed=0;this.speed=0;this.overview=false;this.keys.clear();this.gamepadMove=null;this.inputEnabled=true;if(!this.xr)this.scene.activeCamera=this.camera;this.update(0);}
  toggleOverview(){this.overview=!this.overview;document.exitPointerLock();this.scene.activeCamera=this.overview?this.overviewCamera:this.camera;}
- spawn(id){this.position=vec(this.terrain.spawn((id-1)%8));this.radialSpeed=0;}
- state(sequence){return{type:'state',sequence,position:this.position.asArray(),rotation:this.rotation.asArray(),pitch:this.pitch};}
+ spawn(id){this.position=vec(this.worldMap===ROOM_MAP?roomSpawn((id-1)%8):this.terrain.spawn((id-1)%8));this.radialSpeed=0;}
+ state(sequence){return{type:'state',map:this.worldMap,sequence,position:this.position.asArray(),rotation:this.rotation.asArray(),pitch:this.pitch};}
  update(dt,vrInput=null){
    if(!this.inputEnabled)return;
-   const before=this.position.clone(),up=this.position.normalizeToNew();
+   const flat=this.worldMap===ROOM_MAP,before=this.position.clone(),up=this.up();
    this.forward.subtractInPlace(up.scale(B.Vector3.Dot(this.forward,up))).normalize();
    if(this.forward.lengthSquared()<.1)this.forward=B.Vector3.Cross(up,B.Vector3.Right()).normalize();
    let direction=B.Vector3.Zero();
-   if(this.xr&&vrInput)direction=vrInput;
-   else if(!this.overview&&document.pointerLockElement===this.canvas){const x=Number(this.keys.has('KeyD'))-Number(this.keys.has('KeyA')),y=Number(this.keys.has('KeyW'))-Number(this.keys.has('KeyS'));direction=this.forward.scale(y).add(B.Vector3.Cross(this.forward,up).scale(x));if(direction.length()>1)direction.normalize();}
-   const depth=Math.max(0,WATER_RADIUS-this.position.length()),speed=(this.xr?2.5:5.5)*(depth>.35?.58:1);
+   if(this.xr&&vrInput?.lengthSquared()>.0001)direction=vrInput;
+   else if(!this.overview){
+     const keyboard=document.pointerLockElement===this.canvas;
+     const x=(keyboard?Number(this.keys.has('KeyD'))-Number(this.keys.has('KeyA')):0)+(this.gamepadMove?.x||0),y=(keyboard?Number(this.keys.has('KeyW'))-Number(this.keys.has('KeyS')):0)+(this.gamepadMove?.y||0);
+     let forward=this.forward;
+     if(this.xr){forward=B.Vector3.TransformNormal(new B.Vector3(0,0,-1),this.scene.activeCamera.getWorldMatrix());forward.subtractInPlace(up.scale(B.Vector3.Dot(forward,up))).normalize();if(forward.lengthSquared()<.01)forward=this.forward;}
+     direction=forward.scale(y).add(B.Vector3.Cross(forward,up).scale(x));if(direction.length()>1)direction.normalize();
+   }
+   const depth=flat?0:Math.max(0,WATER_RADIUS-this.position.length()),speed=(this.xr?2.5:5.5)*(depth>.35?.58:1);
    let next=this.position.add(direction.scale(speed*dt));
+   let u=up;
+   if(flat){
+     next.set(clamp(next.x,-ROOM_PLAYER_LIMIT,ROOM_PLAYER_LIMIT),0,clamp(next.z,-ROOM_PLAYER_LIMIT,ROOM_PLAYER_LIMIT));
+     this.position=next;this.radialSpeed=0;
+   }else{
    // Tree trunks use the same 0.18 m collider and 0.35 m player radius.
    for(const tree of this.planet.trees){
      const axis=tree.normalizeToNew(),offset=next.subtract(tree),height=B.Vector3.Dot(offset,axis);
@@ -40,12 +55,13 @@ export class Player {
      const tangent=offset.subtract(axis.scale(height)),d=tangent.length();
      if(d<.53){const outward=d>.001?tangent.scale(1/d):B.Vector3.Cross(axis,B.Vector3.Right()).normalize();next.addInPlace(outward.scale(.53-d));}
    }
-   const u=next.normalizeToNew(),floor=this.terrain.radius(u.asArray())+.06;
+   u=next.normalizeToNew();const floor=this.terrain.radius(u.asArray())+.06;
    let radius=next.length();
    this.radialSpeed-= (depth>.5?8:18)*dt;
    radius+=this.radialSpeed*dt;
    if(radius<=floor){radius=floor;this.radialSpeed=0;}
    this.position=u.scale(radius);
+   }
    this.forward.subtractInPlace(u.scale(B.Vector3.Dot(this.forward,u))).normalize();
    this.rotation=orientation(this.forward,u);this.body.position.copyFrom(this.position);this.body.rotationQuaternion.copyFrom(this.rotation);
    this.speed=dt?B.Vector3.Distance(before,this.position)/dt:0;
@@ -54,16 +70,16 @@ export class Player {
    if(!this.xr){
      this.camera.position.copyFrom(eye);
      if(this.third){
-       const back=look.negate(),ray=new B.Ray(eye,back,4),hit=this.scene.pickWithRay(ray,m=>m===this.planet.terrain||m===this.planet.bark);
+       const back=look.negate(),ray=new B.Ray(eye,back,4),hit=this.scene.pickWithRay(ray,m=>flat?this.roomColliders.includes(m):m===this.planet.terrain||m===this.planet.bark);
        let distance=hit?.hit?Math.max(.15,hit.distance-.2):4;
        // Sample the camera arm as a small sphere to keep the near plane out of slopes.
-       for(let d=.15;d<distance;d+=.1){const p=eye.add(back.scale(d));if(p.length()<this.terrain.radius(p.asArray())+.2){distance=Math.max(.15,d-.1);break;}}
+       for(let d=.15;d<distance;d+=.1){const p=eye.add(back.scale(d));if(flat?(p.y<.2||p.y>5.8||Math.abs(p.x)>11.8||Math.abs(p.z)>11.8):p.length()<this.terrain.radius(p.asArray())+.2){distance=Math.max(.15,d-.1);break;}}
        this.camera.position.addInPlace(back.scale(distance));
      }
      // Compose local pitch with the spherical body frame. setTarget() uses world Y
      // and intermittently overwrites upVector when the quaternion changes.
      this.camera.rotationQuaternion.copyFrom(this.rotation.multiply(B.Quaternion.RotationAxis(B.Axis.X,this.pitch)));
-     if(this.overview){this.angle+=dt*.04;this.overviewCamera.position.set(Math.sin(this.angle)*83,65,Math.cos(this.angle)*83);this.overviewCamera.setTarget(B.Vector3.Zero());}
+     if(this.overview){this.angle+=dt*.04;if(flat)this.overviewCamera.position.set(0,5.6,10);else this.overviewCamera.position.set(Math.sin(this.angle)*83,65,Math.cos(this.angle)*83);this.overviewCamera.setTarget(B.Vector3.Zero());}
    }
  }
 }

@@ -12,6 +12,7 @@
 #include <map>
 #include <mutex>
 #include <thread>
+#include <atomic>
 
 using namespace std::chrono_literals;
 
@@ -58,13 +59,16 @@ struct Client {
     std::map<int, Json::Value> snapshots;
     Json::Value welcome;
     std::vector<int> left;
+    std::vector<Json::Value> relays;
     std::vector<rtc::Candidate> pending;
     bool remoteDescription = false;
     bool closed = false;
     bool authError = false;
+    bool roomError = false;
     std::string error;
+    std::shared_ptr<std::atomic<bool>> enabled = std::make_shared<std::atomic<bool>>(true);
 
-    Client(const std::string &url, trantor::EventLoop *loop, const std::string &token, bool premature = false) {
+    Client(const std::string &url, trantor::EventLoop *loop, const std::string &token, long long serverId = 0, bool premature = false) {
         ws = drogon::WebSocketClient::newWebSocketClient(url, loop);
         ws->setConnectionClosedHandler([this](const auto &) {
             std::lock_guard lock(mutex); closed = true; changed.notify_all();
@@ -76,6 +80,8 @@ struct Client {
                 const auto type = message["type"].asString();
                 if (type == "welcome") { std::lock_guard lock(mutex); welcome = message; changed.notify_all(); }
                 if (type == "auth_error") { std::lock_guard lock(mutex); authError = true; changed.notify_all(); }
+                if (type == "room_error") { std::lock_guard lock(mutex); roomError = true; changed.notify_all(); }
+                if (type == "sdp" || type == "ice") { std::lock_guard lock(mutex); relays.push_back(message); changed.notify_all(); }
                 if (type == "left") { std::lock_guard lock(mutex); left.push_back(message["id"].asInt()); changed.notify_all(); }
                 if (type == "server_sdp") {
                     pc->setRemoteDescription(rtc::Description(message["sdp"].asString(), "answer"));
@@ -93,16 +99,19 @@ struct Client {
         });
         auto request = drogon::HttpRequest::newHttpRequest();
         request->setPath("/signal");
-        ws->connectToServer(request, [this, token, premature](auto result, const auto &, const auto &) {
+        ws->connectToServer(request, [enabled = enabled, token, serverId, premature](auto result, const auto &, const auto &client) {
             if (result != drogon::ReqResult::Ok) return;
+            if (!*enabled) { client->getConnection()->shutdown(); return; }
             Json::Value message;
             message["type"] = premature ? "server_sdp" : "auth";
             message["token"] = token;
-            send(message);
+            message["server_id"] = Json::Int64(serverId);
+            client->getConnection()->send(encode(message));
         });
     }
     ~Client() { stop(); }
     void stop() {
+        *enabled = false;
         if (channel) { channel->resetCallbacks(); channel->close(); }
         if (pc) { pc->resetCallbacks(); pc->close(); }
         if (ws) {
@@ -113,7 +122,9 @@ struct Client {
     }
     template<typename Predicate> void wait(Predicate predicate, const char *message) {
         std::unique_lock lock(mutex);
-        check(changed.wait_for(lock, 10s, [&] { return predicate() || !error.empty(); }), message);
+        if (!changed.wait_for(lock, 10s, [&] { return predicate() || !error.empty(); })) {
+            throw std::runtime_error(std::string(message) + (pc ? " (RTC state " + std::to_string(static_cast<int>(pc->state())) + ", ICE " + std::to_string(static_cast<int>(pc->iceState())) + ")" : ""));
+        }
         if (!error.empty()) throw std::runtime_error(error);
     }
     void send(Json::Value message) { ws->getConnection()->send(encode(message)); }
@@ -197,45 +208,124 @@ int main(int argc, char **argv) {
         credentials["password"] = "password123";
         result = request("/api/auth/login", drogon::Post, credentials);
         check(result->statusCode() == 200, "Login endpoint failed");
+        credentials["email"] = "guest@example.com";
+        result = request("/api/auth/register", drogon::Post, credentials);
+        check(result->statusCode() == 201, "Guest registration failed");
         const auto secondToken = (*result->getJsonObject())["token"].asString();
+        credentials["email"] = "outsider@example.com";
+        result = request("/api/auth/register", drogon::Post, credentials);
+        const auto otherToken = (*result->getJsonObject())["token"].asString();
+        check(request("/api/servers", drogon::Get, {})->statusCode() == 401, "Server list allowed no token");
+        Json::Value create; create["name"] = "First world"; create["owner_id"] = 999;
+        result = request("/api/servers", drogon::Post, create, token);
+        check(result->statusCode() == 201, "Server creation failed");
+        const auto room = (*result->getJsonObject())["server"]["id"].asInt64();
+        check((*result->getJsonObject())["server"]["owner"]["id"] == 1, "Client forged server ownership");
+        const auto path = "/api/servers/" + std::to_string(room);
+        check(request(path + "/join", drogon::Post, {}, secondToken)->statusCode() == 200, "Guest join failed");
+        check(request(path + "/start", drogon::Post, {}, secondToken)->statusCode() == 403, "Guest started world");
+        check(request(path, drogon::Delete, {}, secondToken)->statusCode() == 403, "Guest deleted world");
+        Client waiting(url, thread.getLoop(), token, room);
+        waiting.wait([&] { return waiting.closed; }, "Waiting room allowed signaling");
+        check(waiting.roomError && waiting.welcome.isNull(), "Waiting room did not reject WebRTC entry"); waiting.stop();
+        check(request(path + "/start", drogon::Post, {}, token)->statusCode() == 200, "Owner start failed");
+        result = request(path + "/ready", drogon::Post, {}, token);
+        check((*result->getJsonObject())["server"]["state"] == "loading", "World did not wait for guest readiness");
+        Client loading(url, thread.getLoop(), token, room);
+        loading.wait([&] { return loading.closed; }, "Loading room allowed signaling"); loading.stop();
+        result = request(path + "/ready", drogon::Post, {}, secondToken);
+        check((*result->getJsonObject())["server"]["state"] == "countdown", "Ready barrier did not start countdown");
+        const auto deadline = (*result->getJsonObject())["server"]["starts_at_ms"].asInt64();
+        const auto serverTime = (*result->getJsonObject())["server_time_ms"].asInt64();
+        check(deadline - serverTime >= 2900 && deadline - serverTime <= 3000, "Countdown is not three seconds");
+        Client counting(url, thread.getLoop(), token, room);
+        counting.wait([&] { return counting.closed; }, "Countdown allowed signaling");
+        check(counting.roomError && counting.welcome.isNull(), "Countdown bypassed signaling barrier"); counting.stop();
+        auto waitRunning = [&](const std::string &roomPath, const std::string &roomToken) {
+            for (int i = 0; i < 100; ++i) {
+                auto response = request(roomPath, drogon::Get, {}, roomToken);
+                if ((*response->getJsonObject())["server"]["state"] == "running") return;
+                std::this_thread::sleep_for(50ms);
+            }
+            throw std::runtime_error("Countdown did not finish");
+        };
+        waitRunning(path, token);
+        Client outsider(url, thread.getLoop(), otherToken, room);
+        outsider.wait([&] { return outsider.closed; }, "Non-member entered running world");
+        check(outsider.roomError && outsider.welcome.isNull(), "Non-member bypassed membership"); outsider.stop();
         Client forged(url, thread.getLoop(), std::string(64, '0'));
         forged.wait([&] { return forged.closed; }, "Forged token was not disconnected");
         check(forged.authError && forged.welcome.isNull(), "Forged token entered room"); forged.stop();
-        Client premature(url, thread.getLoop(), token, true);
+        Client premature(url, thread.getLoop(), token, room, true);
         premature.wait([&] { return premature.closed; }, "Unauthenticated SDP was not disconnected");
         check(premature.authError && premature.welcome.isNull(), "SDP bypassed authentication"); premature.stop();
-        Client first(url, thread.getLoop(), token);
+        Client first(url, thread.getLoop(), token, room);
         first.wait([&] { return first.welcome.isObject(); }, "First client did not join");
         check(first.welcome["voice_protocol"] == 1 && first.welcome["rtc_config"]["iceServers"].isArray(), "Missing authenticated voice configuration");
         const auto &rtcConfig = first.welcome["rtc_config"];
         check(rtcConfig["iceTransportPolicy"] == "relay" && rtcConfig["iceServers"].size() == 1, "Local voice must use TURN");
-        const auto &relay = rtcConfig["iceServers"][0];
-        check(relay["urls"].asString().rfind("turn:127.0.0.1:", 0) == 0 &&
-              !relay["username"].asString().empty() && relay["credential"].asString().size() == 64,
+        const auto &relayConfig = rtcConfig["iceServers"][0];
+        check(relayConfig["urls"].asString().rfind("turn:127.0.0.1:", 0) == 0 &&
+              !relayConfig["username"].asString().empty() && relayConfig["credential"].asString().size() == 64,
               "Missing local TURN address or generated credentials");
-        Client second(url, thread.getLoop(), secondToken);
+        Client second(url, thread.getLoop(), secondToken, room);
         second.wait([&] { return second.welcome.isObject(); }, "Second client did not join");
         check(second.welcome["peers"].size() == 1, "Late join did not list existing player");
+        check(first.welcome["map"] == "white-room" && first.welcome["spawn"] != second.welcome["spawn"], "Room spawn metadata invalid");
         first.startWorld(); second.startWorld();
         first.wait([&] { return first.snapshots.size() > 3; }, "No first WebRTC snapshots");
         second.wait([&] { return second.snapshots.size() > 3; }, "No second WebRTC snapshots");
+        create["name"] = "Other world";
+        result = request("/api/servers", drogon::Post, create, otherToken);
+        const auto otherRoom = (*result->getJsonObject())["server"]["id"].asInt64();
+        const auto otherPath = "/api/servers/" + std::to_string(otherRoom);
+        request(otherPath + "/start", drogon::Post, {}, otherToken); request(otherPath + "/ready", drogon::Post, {}, otherToken);
+        waitRunning(otherPath, otherToken);
+        Client isolated(url, thread.getLoop(), otherToken, otherRoom);
+        isolated.wait([&] { return isolated.welcome.isObject(); }, "Other room could not connect");
+        check(isolated.welcome["peers"].empty(), "Other room saw foreign peers");
+        isolated.startWorld(); isolated.wait([&] { return isolated.snapshots.size() > 3; }, "Other room has no world snapshots");
+        {
+            std::scoped_lock lock(first.mutex, isolated.mutex);
+            check(first.snapshots.rbegin()->second["server_id"].asInt64() == room && isolated.snapshots.rbegin()->second["server_id"].asInt64() == otherRoom, "World snapshots mixed rooms");
+        }
+        Json::Value relay; relay["type"] = "sdp"; relay["description"] = "offer"; relay["sdp"] = "test";
+        relay["to"] = isolated.welcome["id"]; first.send(relay);
+        relay["to"] = second.welcome["id"]; first.send(relay);
+        second.wait([&] { return !second.relays.empty(); }, "Same-room relay failed");
+        std::this_thread::sleep_for(100ms);
+        { std::lock_guard lock(isolated.mutex); check(isolated.relays.empty(), "Cross-room signaling was relayed"); }
         Json::Value player;
         player["type"] = "player"; player["sequence"] = 12; player["sent"] = 123.0;
         player["position"] = Json::Value(Json::arrayValue);
-        for (double v : {0.0, 35.0, -10.0}) player["position"].append(v);
+        for (double v : {0.0, 0.0, -10.0}) player["position"].append(v);
+        player["rotation"] = Json::Value(Json::arrayValue);
+        for (double v : {0.0, 0.0, 0.0, 1.0}) player["rotation"].append(v);
+        player["pitch"] = 0.0;
         first.channel->send(encode(player));
         first.wait([&] { return first.snapshots.rbegin()->second["ack"].asInt() == 12; }, "Position was not acknowledged");
+        second.wait([&] { return !second.snapshots.rbegin()->second["players"].empty(); }, "Server RTC did not relay room poses");
+        {
+            std::scoped_lock lock(second.mutex, isolated.mutex);
+            const auto pose = second.snapshots.rbegin()->second["players"][0];
+            check(pose["id"] == first.welcome["id"] && pose["position"] == player["position"] && pose["rotation"] == player["rotation"], "Server pose relay lost state");
+            check(isolated.snapshots.rbegin()->second["players"].empty(), "Server pose relay crossed room boundary");
+        }
         {
             std::scoped_lock lock(first.mutex, second.mutex);
             int matches = 0;
             for (const auto &[tick, a] : first.snapshots) {
                 if (!second.snapshots.count(tick)) continue;
                 const auto &b = second.snapshots.at(tick);
-                check(a["fish"].size() == 48 && a["fish"] == b["fish"], "Clients received different fish for the same tick");
+                check(a["type"] == "world" && a["map"] == "white-room" && !a.isMember("fish") && a["map"] == b["map"], "Clients received different room metadata");
                 ++matches;
             }
             check(matches > 0, "No shared authoritative tick");
         }
+        player["sequence"] = 13; player["position"][0] = 20;
+        first.channel->send(encode(player));
+        std::this_thread::sleep_for(150ms);
+        { std::lock_guard lock(first.mutex); check(first.snapshots.rbegin()->second["ack"].asInt() == 12, "Server accepted position outside white room"); }
         check(request("/api/auth/logout", drogon::Post, {}, secondToken)->statusCode() == 200, "Logout failed");
         second.wait([&] { return second.closed; }, "Revoked WebSocket remained connected");
         check(second.authError, "Revoked session did not receive auth_error");
@@ -247,19 +337,27 @@ int main(int argc, char **argv) {
         Client revoked(url, thread.getLoop(), secondToken);
         revoked.wait([&] { return revoked.closed; }, "Revoked token reconnected");
         check(revoked.welcome.isNull(), "Revoked token received welcome"); revoked.stop();
-        Client replacement(url, thread.getLoop(), token);
+        Client replacement(url, thread.getLoop(), token, room);
         replacement.wait([&] { return replacement.welcome.isObject(); }, "Reconnect failed");
         check(replacement.welcome["id"] != second.welcome["id"], "Reconnect reused stale ID");
         std::vector<std::unique_ptr<Client>> extra;
         for (int i = 0; i < 6; ++i) {
-            auto client = std::make_unique<Client>(url, thread.getLoop(), token);
+            auto client = std::make_unique<Client>(url, thread.getLoop(), token, room);
             client->wait([&] { return client->welcome.isObject(); }, "Room did not accept player within limit");
             extra.push_back(std::move(client));
         }
-        Client ninth(url, thread.getLoop(), token);
+        Client ninth(url, thread.getLoop(), token, room);
         ninth.wait([&] { return ninth.closed; }, "Room accepted a ninth player");
         check(ninth.welcome.isNull(), "Ninth player received welcome");
-        std::cout << "PASS: HTTP registration/login, bearer authentication, unauthorized SDP rejection, WebRTC snapshots, logout revocation, reconnect and 8-player limit\n";
+        check(request(path, drogon::Delete, {}, token)->statusCode() == 200, "Owner could not close server");
+        first.wait([&] { return first.closed; }, "Closed room retained WebSocket");
+        check(first.roomError, "Closed room did not report room_error");
+        for (int i = 0; i < 100 && first.channel->isOpen(); ++i) std::this_thread::sleep_for(20ms);
+        check(!first.channel->isOpen(), "Closed room retained WebRTC");
+        size_t previous;
+        { std::lock_guard lock(isolated.mutex); previous = isolated.snapshots.size(); }
+        isolated.wait([&] { return isolated.snapshots.size() > previous; }, "Closing another room stopped isolated simulation");
+        std::cout << "PASS: authenticated HTTP lobby, owner permissions, readiness barrier, room isolation, WebRTC snapshots, revocation, room closure and capacity\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n'; return 1;
     }

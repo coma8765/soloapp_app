@@ -43,7 +43,7 @@ export class AccountPanel {
     $('settings-form').onsubmit = event => { event.preventDefault(); void this.applySettings(); };
     $('settings-close').onclick = () => this.closeSettings();
     $('settings-dialog').addEventListener('cancel', event => { event.preventDefault(); this.closeSettings(); });
-    $('settings-dialog').addEventListener('close', () => { if (!this.settingsOpen) this.player.inputEnabled = true; });
+    $('settings-dialog').addEventListener('close', () => { if (!this.settingsOpen) this.player.inputEnabled = !this.lobby?.countdown; });
     window.addEventListener('keydown', event => {
       if (event.code === 'Escape' && this.settingsOpen) { event.preventDefault(); this.closeSettings(); }
     });
@@ -74,7 +74,7 @@ export class AccountPanel {
   get busy() { return this.mode === 'settings' ? this.settingsBusy : this.auth.busy; }
 
   openSettings(onboarding = false) {
-    if (this.settingsBusy) return;
+    if (this.settingsBusy || this.lobby?.countdown) return;
     this.onboarding = onboarding;
     this.mode = 'settings';
     this.draft = this.player.avatar.id || this.preferences.id;
@@ -96,7 +96,7 @@ export class AccountPanel {
   closeSettings() {
     if (this.settingsBusy) return;
     $('settings-dialog').close();
-    this.player.inputEnabled = true;
+    this.player.inputEnabled = !this.lobby?.countdown;
     this.player.keys.clear();
     document.activeElement?.blur();
     this.sync();
@@ -134,6 +134,8 @@ export class AccountPanel {
   }
 
   toggleMenu() {
+    if (this.lobby?.countdown) return;
+    if (this.lobby) { this.toggle(); this.sync(); return; }
     if (this.settingsOpen) this.closeSettings();
     else if ($('auth-dialog').open) { $('auth-dialog').close(); this.sync(); }
     else if (this.auth.token) this.openSettings();
@@ -157,6 +159,14 @@ export class AccountPanel {
     this.gearTarget = { id: 'settings-gear', action: () => this.settingsOpen ? this.closeSettings() : this.openSettings() };
   }
 
+  toggle() {
+    if (this.lobby?.countdown) return;
+    if (this.settingsOpen) { this.closeSettings(); return; }
+    if (this.auth.token) this.lobby.visible ? this.lobby.visible = false : this.lobby.show();
+    else if ($('auth-dialog').open) $('auth-dialog').close(); else this.auth.require();
+    this.recenter = true;
+  }
+
   present() {
     const camera = this.scene.activeCamera;
     camera.computeWorldMatrix(true);
@@ -172,26 +182,28 @@ export class AccountPanel {
   }
 
   sync() {
+    const countdown = !!this.lobby?.countdown;
+    if (countdown !== this.countdown) { this.countdown = countdown; this.recenter = true; this.controllerFocus = ''; }
     document.body.classList.toggle('settings-open', this.settingsOpen);
-    this.gear.setEnabled(!!this.xr);
+    this.gear.setEnabled(!!this.xr && !countdown);
     if (this.xr) {
       this.gear.parent = this.scene.activeCamera;
       this.gear.position.set(-.42, -.25, -1);
     }
-    // Both forms share this mesh, drawing primitives, picking and XR rays.
-    const mode = this.settingsOpen ? 'settings' : 'auth';
-    if (mode !== this.mode) { this.mode = mode; this.lastState = ''; this.recenter = true; }
-    const visible = this.settingsOpen || ($('auth-dialog').open && !this.auth.token);
+    const mode = countdown ? 'countdown' : this.settingsOpen ? 'settings' : this.auth.token && this.lobby ? 'lobby' : 'auth';
+    if (mode !== this.mode) { this.mode = mode; this.lastState = ''; this.recenter = true; this.controllerFocus = ''; }
+    const visible = countdown || this.settingsOpen || (this.auth.token ? !!this.lobby?.visible : $('auth-dialog').open);
     if (visible !== this.visible) {
       this.mesh.setEnabled(visible);
       if (visible) this.present();
-      else { this.hover = ''; this.lastState = ''; this.canvas.style.cursor = ''; this.hideRays(); }
+      else { this.hover = ''; this.controllerFocus = ''; this.lastState = ''; this.canvas.style.cursor = ''; this.hideRays(); }
     }
     if (!visible) return;
     if (this.recenter) { this.present(); this.recenter = false; }
-    const state = JSON.stringify([this.mode, this.draft, this.onboarding, this.settingsBusy, $('settings-status').textContent,
-      this.field, this.shift, this.symbols, this.hover, this.auth.busy,
-      this.auth.registration, $('auth-email').value, $('auth-password').value, $('auth-error').textContent]);
+    const state = JSON.stringify([this.mode, this.draft, this.onboarding, this.settingsBusy, $('settings-status').textContent, this.field, this.shift, this.symbols, this.hover, this.controllerFocus, this.controllerActive, this.auth.busy,
+      this.auth.registration, $('auth-email').value, $('auth-password').value, $('auth-error').textContent,
+      !!this.auth.token, this.page, this.lobby?.servers, this.lobby?.current, this.lobby?.busy, this.lobby?.error, this.lobby?.userId,
+      countdown ? this.lobby.secondsLeft : null]);
     if (state !== this.lastState) { this.lastState = state; this.draw(); }
   }
 
@@ -209,11 +221,25 @@ export class AccountPanel {
     };
     const button = (id, label, x, y, w, h, action, accent = false) => {
       this.targets.push({ id, x, y, w, h, action });
-      box(x, y, w, h, this.hover === id ? '#447481' : accent ? '#bde5d1' : '#1c3d4d', this.hover === id ? '#dcfff2' : '#507784');
-      c.font = '28px sans-serif'; c.textAlign = 'center'; c.fillStyle = accent ? '#13333b' : '#eaf6f6';
+      const selected = this.hover === id || this.controllerFocus === id;
+      box(x, y, w, h, selected ? '#447481' : accent ? '#bde5d1' : '#1c3d4d', selected ? '#dcfff2' : '#507784');
+      if (this.controllerFocus === id) { c.lineWidth = 5; c.strokeStyle = '#e8ffe5'; c.stroke(); }
+      c.font = '28px sans-serif'; c.textAlign = 'center'; c.fillStyle = accent && !selected ? '#13333b' : '#eaf6f6';
       c.fillText(label, x + w / 2, y + h / 2 + 10);
     };
     box(3, 3, WIDTH - 6, HEIGHT - 6, '#102c3bee', '#8fbbc6');
+    if (this.countdown) {
+      text('ПЕРЕХОД В ДРУГОЙ МИР', 48, 100, 32, '#c0e6dc');
+      text('Белая комната', 48, 178, 56);
+      text('Все участники готовы. Переносим вас вместе.', 48, 246, 29, '#adc8d2');
+      const value = this.lobby.secondsLeft;
+      c.textAlign = 'center'; c.font = 'bold 280px sans-serif'; c.fillStyle = '#e8ffe5';
+      c.fillText(value || '…', WIDTH / 2, 660);
+      text(value ? 'До появления в комнате' : 'Ожидаем подтверждения сервера…', 190, 784, 34);
+      text('Точка спавна назначена каждому участнику.', 118, 966, 30, '#adc8d2');
+      this.texture.update(); return;
+    }
+    if (this.mode === 'lobby') { this.drawLobby(text, button, box); this.texture.update(); return; }
     text('MICRO / PLANET', 48, 59, 24, '#c0e6dc');
     if (this.mode === 'settings') {
       this.drawSettings({ box, text, button });
@@ -226,8 +252,9 @@ export class AccountPanel {
     for (const [name, label, y] of [['email', 'Почта', 226], ['password', 'Пароль · от 8 символов', 334]]) {
       text(label, 48, y - 14, 25, '#adc8d2');
       const input = $(`auth-${name}`);
-      const active = this.field === name;
+      const active = this.field === name || this.controllerFocus === name;
       box(48, y, 928, 70, active ? '#244758' : '#183544', active ? '#a4ead9' : '#4a6e7b');
+      if (this.controllerFocus === name) { c.lineWidth = 5; c.strokeStyle = '#e8ffe5'; c.stroke(); }
       let value = name === 'password' ? '•'.repeat(Array.from(input.value).length) : input.value;
       if (value.length > 44) value = '…' + value.slice(-43);
       text(value || (name === 'email' ? 'you@example.com' : 'Ваш пароль'), 70, y + 46, 32, value ? '#f0fbf9' : '#8ba9b6');
@@ -257,7 +284,7 @@ export class AccountPanel {
     button('walk', 'Продолжить прогулку  ↗', 48, 992, 928, 66, () => {
       $('auth-dialog').close(); document.activeElement?.blur(); this.sync(); this.walk();
     });
-    text(this.xr ? 'Луч + триггер · B — открыть / убрать панель' : 'Мышь / клавиатура · Esc — вернуться после прогулки', 48, 1094, 24, '#adc8d2');
+    text(this.controllerActive ? '✕ — выбрать · ○ — назад · L1 / R1 — соседний элемент' : this.xr ? 'Луч + триггер · B — открыть / убрать панель' : 'Мышь / клавиатура · Esc — вернуться после прогулки', 48, 1094, 24, '#adc8d2');
     this.texture.update();
   }
 
@@ -277,7 +304,7 @@ export class AccountPanel {
     button('settings-save', this.settingsBusy ? 'Загружаем…' : $('settings-save').textContent,
       48, 830, 928, 72, () => { void this.applySettings(); }, true);
     button('settings-close', 'Закрыть', 48, 926, 928, 64, () => this.closeSettings());
-    text(this.xr ? 'Луч + триггер · B — закрыть' : 'Мышь / клавиатура · Esc — закрыть', 48, 1080, 24, '#adc8d2');
+    text(this.controllerActive ? '✕ — выбрать · ○ — закрыть · L1 / R1 — выбор' : this.xr ? 'Луч + триггер · B — закрыть' : 'Мышь / клавиатура · Esc — закрыть', 48, 1080, 24, '#adc8d2');
   }
 
   write(key) {
@@ -291,8 +318,62 @@ export class AccountPanel {
   }
 
   activate(target) {
-    if (!target || this.busy) return;
+    if (!target || this.countdown || this.busy || (this.mode === 'lobby' && this.lobby?.busy)) return;
     target.action(); this.sync();
+  }
+
+  drawLobby(text, button, box) {
+    const lobby = this.lobby, room = lobby.current;
+    const title = value => Array.from(value).slice(0, 36).join('');
+    const states = { waiting: 'Ожидание владельца', loading: 'Подготовка мира', countdown: 'Переход · 3 секунды', running: 'Белая комната' };
+    text('MICRO / PLANET', 48, 59, 24, '#c0e6dc');
+    button('logout', 'Выйти', 798, 25, 178, 50, () => document.getElementById('logout').click());
+    button('settings', '⚙', 716, 25, 64, 50, () => this.openSettings());
+    text(room ? title(room.name) : 'Выберите сервер', 48, 118, 42);
+    if (!room) {
+      text('Создайте свой мир или присоединитесь к друзьям.', 48, 165, 27, '#adc8d2');
+      button('create-server', lobby.busy ? 'Создаём…' : '+ Создать сервер', 48, 194, 928, 66, () => { void lobby.action(''); }, true);
+      const pages = Math.max(1, Math.ceil(lobby.servers.length / 5));
+      this.page = Math.min(this.page || 0, pages - 1);
+      if (!lobby.servers.length) text('Пока нет серверов. Создайте первый.', 70, 345, 30);
+      lobby.servers.slice(this.page * 5, this.page * 5 + 5).forEach((server, index) => {
+        const y = 286 + index * 110;
+        box(48, y, 928, 98, '#183544');
+        text(title(server.name), 70, y + 35, 30);
+        text(`${server.owner.name.slice(0, 16)} · ${server.member_count} / 8 · ${states[server.state]}`, 70, y + 73, 23, '#adc8d2');
+        if (server.state === 'waiting' && server.member_count < server.capacity)
+          button('join-' + server.id, 'Вступить', 790, y + 20, 165, 58, () => { void lobby.action(`/${server.id}/join`); });
+      });
+      if (pages > 1) {
+        button('previous', '←', 48, 850, 160, 58, () => { this.page = (this.page + pages - 1) % pages; });
+        text(`${this.page + 1} / ${pages}`, 456, 890, 28);
+        button('next-page', '→', 816, 850, 160, 58, () => { this.page = (this.page + 1) % pages; });
+      }
+    } else {
+      const owner = room.owner.id === lobby.userId;
+      text(`Владелец: ${title(room.owner.name)}${owner ? ' · это вы' : ''}`, 48, 165, 27, '#adc8d2');
+      text(states[room.state], 48, 224, 34, '#bde5d1');
+      text(`${room.member_count} / 8 участников`, 48, 270, 27, '#adc8d2');
+      room.members.forEach((member, index) => {
+        const y = 296 + index * 55;
+        box(48, y, 928, 48, '#183544');
+        text(`${title(member.name)}${member.id === room.owner.id ? ' · владелец' : ''}`, 68, y + 32, 26);
+        if (room.state !== 'waiting') text(member.ready ? 'Готов' : 'Загрузка…', 785, y + 32, 24, member.ready ? '#bde5d1' : '#ffd1b8');
+      });
+      if (room.state === 'waiting') {
+        if (owner) button('start-server', 'Запустить мир для всех', 48, 764, 928, 66, () => { void lobby.action(`/${room.id}/start`); }, true);
+        else text('Ждём, когда владелец запустит мир…', 48, 807, 30, '#adc8d2');
+      } else if (room.state === 'loading') {
+        if (lobby.error) button('retry-load', 'Повторить подготовку мира', 48, 764, 928, 66, () => { lobby.loadAttempt = 0; lobby.error = ''; void lobby.poll(); });
+        else text('Мир откроется, когда все будут готовы.', 48, 807, 29, '#adc8d2');
+      } else button('reconnect-server', 'Вернуться в мир', 48, 764, 928, 66, () => { lobby.reconnect(); lobby.visible = false; this.walk(); }, true);
+      button('leave-server', owner ? 'Закрыть свой сервер' : 'Покинуть сервер', 48, 850, 928, 66,
+        () => { void lobby.action(owner ? `/${room.id}` : `/${room.id}/leave`, owner ? 'DELETE' : 'POST'); });
+    }
+    text(lobby.error.slice(0, 68), 48, 945, 23, '#ffd1b8');
+    text(lobby.error.slice(68, 136), 48, 973, 23, '#ffd1b8');
+    button('walk', 'Продолжить прогулку  ↗', 48, 992, 928, 66, () => { lobby.visible = false; this.sync(); this.walk(); });
+    text(this.controllerActive ? '✕ — выбрать · ○ — назад · □ / Options — серверы' : this.xr ? 'Луч + триггер · B — открыть / убрать серверы' : 'Esc — серверы · мир позади остаётся доступен', 48, 1094, 24, '#adc8d2');
   }
 
   targetAt(pick) {

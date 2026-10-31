@@ -37,7 +37,7 @@ export class XRView {
    this.texture=new B.DynamicTexture('VR HUD',{width:768,height:448},this.scene,false);const mat=new B.StandardMaterial('VR HUD material',this.scene);mat.diffuseTexture=this.texture;mat.emissiveColor=B.Color3.White();mat.disableLighting=true;mat.backFaceCulling=false;this.hud.material=mat;this.hud.setEnabled(false);
  }
  enter(){this.active=true;this.planet.setXRQuality(true);this.player.xr=true;this.player.keys.clear();this.savedGrass=this.planet.grass.thinInstanceCount;this.planet.grass.thinInstanceCount=Math.min(this.highQuality?12000:6000,this.savedGrass);this.hud.setEnabled(this.visible);document.body.classList.add('in-vr');this.armed=true;this.aDown=false;this.bDown=false;this.xDown=false;
-   if(this.authPanel){this.authPanel.xr=true;this.authPanel.recenter=true;if(!this.authPanel.auth.token)this.authPanel.auth.require();}
+   if(this.authPanel){this.authPanel.xr=true;this.authPanel.recenter=true;if(!this.authPanel.auth.token)this.authPanel.auth.require();else this.authPanel.lobby?.show();}
  }
  exit(){if(this.active){this.planet.setXRQuality(false);this.planet.grass.thinInstanceCount=this.savedGrass;this.active=false;this.player.xr=false;this.hud.setEnabled(false);document.body.classList.remove('in-vr');}
    this.scene.activeCamera=this.player.overview?this.player.overviewCamera:this.player.camera;this.player.update(0);
@@ -59,14 +59,16 @@ export class XRView {
    if(Math.abs(turn)>.7&&this.armed){
      this.armed=false;
      // Keep the headset fixed when rotating an off-centre, room-scale user.
-     const before=this.helper.camera.globalPosition.clone();this.player.turn(-Math.sign(turn)*Math.PI/6);this.player.update(0);this.sync();
-     this.helper.camera.computeWorldMatrix();const after=this.helper.camera.globalPosition;
-     this.origin.position.addInPlace(before.subtract(after));this.player.position.addInPlace(before.subtract(after));
+     this.turn(-Math.sign(turn)*Math.PI/6);
    }
    const magnitude=Math.min(1,Math.hypot(x,y));if(magnitude<=.2)return B.Vector3.Zero();
-   const up=this.player.position.normalizeToNew(),world=this.helper.camera.getWorldMatrix();
+   const up=this.player.up(),world=this.helper.camera.getWorldMatrix();
    let forward=B.Vector3.TransformNormal(new B.Vector3(0,0,-1),world);forward.subtractInPlace(up.scale(B.Vector3.Dot(forward,up))).normalize();if(forward.lengthSquared()<.01)forward=this.player.forward;
    return B.Vector3.Cross(forward,up).scale(x).add(forward.scale(-y)).normalize().scale((magnitude-.2)/.8);
+ }
+ turn(angle){const before=this.helper.camera.globalPosition.clone();this.player.turn(angle);this.player.update(0);this.sync();
+   this.helper.camera.computeWorldMatrix();const after=this.helper.camera.globalPosition;
+   this.origin.position.addInPlace(before.subtract(after));this.player.position.addInPlace(before.subtract(after));
  }
  sync(){if(!this.active)return;this.origin.position.copyFrom(this.player.position);this.origin.rotationQuaternion.copyFrom(this.player.rotation);this.origin.computeWorldMatrix(true);
    if(performance.now()>(this.nextHUD||0)){this.nextHUD=performance.now()+250;const c=this.texture.getContext();c.fillStyle='#102c32';c.fillRect(0,0,768,448);c.fillStyle='#e3f0db';c.font='26px sans-serif';this.hudText().split('\n').slice(0,11).forEach((s,i)=>c.fillText(s,24,43+i*35));this.texture.update();}

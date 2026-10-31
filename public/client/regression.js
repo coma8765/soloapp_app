@@ -1,5 +1,43 @@
+import { ROOM_MAP, ROOM_PLAYER_LIMIT, roomSpawn } from '../shared/room.js';
+import { validState } from '../shared/world.js';
 // Shared by the browser diagnostics and offline engine checks.
 const B = window.BABYLON;
+export function verifyWhiteRoom(player, room, check) {
+  const saved = { third: player.third, xr: player.xr, overview: player.overview };
+  const before = player.position.clone();
+  player.third = false; player.xr = false;
+  try {
+    room.enter({ id: 1, members: [{ id: 1, spawn_slot: 0 }] }, 1);
+    check(player.worldMap === ROOM_MAP && !room.planet.terrain.isEnabled() && room.root.isEnabled(), 'Отдельная белая карта скрывает планету');
+    check(new Set(Array.from({ length: 8 }, (_, i) => roomSpawn(i).join(','))).size === 8, 'Восемь разных точек спавна в комнате');
+    for (const slot of Array.from({ length: 8 }, (_, i) => i)) {
+      player.setMap(ROOM_MAP, roomSpawn(slot));
+      check(validState(player.state(0), ROOM_MAP) && !validState(player.state(0)), 'Комнатный спавн и отдельная проверка координат: ' + slot);
+    }
+    for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) {
+      player.setMap(ROOM_MAP, [0, 0, 0]); player.gamepadMove = { x, y };
+      for (let i = 0; i < 240; i++) player.update(.05);
+      check(Math.abs(player.position.x) <= ROOM_PLAYER_LIMIT && Math.abs(player.position.z) <= ROOM_PLAYER_LIMIT && player.position.y === 0,
+        'Пол и стены удерживают игрока: ' + x + ',' + y);
+      player.gamepadMove = null;
+      player.third = true;
+      let cameraInside = true;
+      for (let i = 0; i < 36; i++) {
+        player.turn(Math.PI / 18); player.update(0);
+        cameraInside &&= Math.abs(player.camera.position.x) < 12 && Math.abs(player.camera.position.z) < 12 && player.camera.position.y > 0 && player.camera.position.y < 6;
+      }
+      check(cameraInside, 'Камера внутри стен при полном обороте: ' + x + ',' + y);
+      player.third = false;
+    }
+    const state = player.state(1); state.position = [20, 0, 0];
+    check(!validState(state, ROOM_MAP), 'Сетевые координаты за стенами отклоняются');
+  } finally {
+    player.gamepadMove = null; room.leave(); Object.assign(player, saved); player.update(0);
+  }
+  check(player.worldMap === 'planet' && B.Vector3.Distance(player.position, before) < .1 && room.planet.terrain.isEnabled() && !room.root.isEnabled(),
+    'Выход возвращает на прежнее место планеты');
+}
+
 export function verifyInstancePlacements(data, check) {
   for (const [name, expected] of [['grassMatrices', 18000], ['leaves', 37840]]) {
     const values = data[name];

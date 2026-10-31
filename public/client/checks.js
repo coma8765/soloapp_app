@@ -1,7 +1,8 @@
 import { Terrain } from '../shared/world.js';
 import { PlanetScene, FishView } from './scene.js';
 import { Player } from './player.js';
-import { verifyInstancePlacements, verifyCameraFrame, verifyLocalAvatar } from './regression.js';
+import { verifyInstancePlacements, verifyCameraFrame, verifyWhiteRoom, verifyLocalAvatar } from './regression.js';
+import { WhiteRoom } from './white-room.js';
 const B = window.BABYLON;
 const output = document.getElementById('results');
 const log = message => { output.textContent += '\n' + message; };
@@ -25,6 +26,8 @@ try {
   verifyInstancePlacements(data, check);
   verifyCameraFrame(player, check);
   await verifyLocalAvatar(player, check);
+  const room = new WhiteRoom(scene, player, planet, fish);
+  verifyWhiteRoom(player, room, check);
   for (const mesh of [planet.terrain, planet.bark, planet.leaves, planet.grass, planet.water]) {
     log('Компиляция: ' + mesh.name);
     mesh.material.onError = (_effect, errors) => log('GLSL: ' + errors);

@@ -23,13 +23,13 @@ const server = spawn(`${root}/build/planet_server`, [`--port=${port}`, '--auth-d
 let logs = '';
 server.stdout.on('data', data => { logs += data; });
 server.stderr.on('data', data => { logs += data; });
-let browser;
+let browser, roomId = 0;
 const extraBrowsers = [];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function ready(page, count) {
   try { await page.waitForFunction(n => network.id && network.peers.size === n &&
     [...network.peers.values()].every(p => p.pc.connectionState === 'connected' && p.dc?.readyState === 'open') &&
-    network.fish.sequence >= 0, count, { timeout: 25000 }); } catch(error) { console.error('Readiness:',await page.evaluate(()=>({id:network.id,status:network.status,world:network.worldPC?.connectionState,fish:network.fish.sequence,peers:[...network.peers].map(([id,p])=>({id,connection:p.pc.connectionState,ice:p.pc.iceConnectionState,signal:p.pc.signalingState,dc:p.dc?.readyState,transceivers:p.pc.getTransceivers().map(t=>({mid:t.mid,direction:t.currentDirection}))}))}))); throw error; }
+    network.worldTick >= 0, count, { timeout: 25000 }); } catch(error) { console.error('Readiness:',await page.evaluate(()=>({id:network.id,status:network.status,world:network.worldPC?.connectionState,tick:network.worldTick,peers:[...network.peers].map(([id,p])=>({id,connection:p.pc.connectionState,ice:p.pc.iceConnectionState,signal:p.pc.signalingState,dc:p.dc?.readyState,transceivers:p.pc.getTransceivers().map(t=>({mid:t.mid,direction:t.currentDirection}))}))}))); throw error; }
 }
 async function audioReceived(page, count) {
   let rows = [];
@@ -89,9 +89,10 @@ try {
       const response=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'voice${index}@example.com',password:'voice-test-password'})});
       const account=await response.json();
       const auth={token:account.token,expiresAt:account.expires_at*1000,clear(){this.token=null;}};
-      const player={state:()=>({type:'test'}),position:{asArray:()=>[0,35,-10]}};
+      const player={worldMap:'white-room',state:sequence=>({type:'state',map:'white-room',sequence,position:[0,0,0],rotation:[0,0,0,1],pitch:0}),position:{asArray:()=>[0,0,0]}};
       const fish={last:0,sequence:-1,reset(){this.last=0;this.sequence=-1;},snapshot(s){this.last=performance.now();this.sequence=s.sequence;}};
       window.network=new Network(null,player,fish,{actors:new Map()},auth,()=>{},voice);
+      network.apply=()=>{}; // This test isolates real transport/audio from avatar rendering.
       document.getElementById('mic').onclick=()=>voice.toggle();
       document.getElementById('unlock').onclick=()=>voice.unlock();
       setInterval(()=>network.update(.05),50);
@@ -100,10 +101,32 @@ try {
     // Rendering is irrelevant to this test; WebSocket, SDP, ICE, audio and world channels are real.
     await page.route('**/client/scene.js', route => route.fulfill({ contentType: 'text/javascript', body: 'export const avatar=()=>{}; export const vec=a=>a;' }));
     await page.goto(`${origin}/voice-test-${index}.html`);
-    try { await page.waitForFunction(() => window.network?.id); } catch(error) { console.error('Client state:',await page.evaluate(()=>({network:!!window.network,status:window.network?.status,error:window.voice?.error})),logs);throw error; }
+    try { await page.waitForFunction(() => !!window.network); } catch(error) { console.error('Client state:',await page.evaluate(()=>({network:!!window.network,status:window.network?.status,error:window.voice?.error})),logs);throw error; }
+    roomId = await page.evaluate(async id => {
+      const response = await fetch('/api/servers' + (id ? '/' + id + '/join' : ''), {
+        method:'POST', headers:{Authorization:'Bearer ' + network.auth.token}
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      return data.server.id;
+    }, roomId);
     return page;
   }
-  const a = await client(1), b = await client(2);
+  const a = await client(1), b = await client(2), c = await client(3);
+  await a.evaluate(async id => {
+    const r = await fetch('/api/servers/' + id + '/start', {method:'POST',headers:{Authorization:'Bearer ' + network.auth.token}});
+    if (!r.ok) throw Error('Cannot start voice test room');
+  }, roomId);
+  for (const page of [a,b,c]) await page.evaluate(async id => {
+    const r = await fetch('/api/servers/' + id + '/ready', {method:'POST',headers:{Authorization:'Bearer ' + network.auth.token}});
+    if (!r.ok) throw Error('Cannot prepare voice test room');
+  }, roomId);
+  await a.waitForFunction(async id => {
+    const r = await fetch('/api/servers/' + id,{headers:{Authorization:'Bearer '+network.auth.token}});
+    return (await r.json()).server?.state === 'running';
+  }, roomId);
+  await Promise.all([a,b].map(page=>page.evaluate(id=>network.connect(id),roomId)));
+  await Promise.all([ready(a,1),ready(b,1)]);
   assert.equal(await a.evaluate(() => voice.enabled), false);
   await Promise.all([a.click('#mic'), b.click('#mic')]);
   await Promise.all([ready(a, 1), ready(b, 1)]);
@@ -125,7 +148,8 @@ try {
   }));
   assert.ok(pairs.every(p=>p.local==='relay'&&p.remote==='relay'),'Audio must use the C++ TURN relay');
   console.log('PASS: audio players advancing; selected candidates:',pairs);
-  const c = await client(3);
+  await c.evaluate(id=>network.connect(id),roomId);
+  await ready(c,2);
   await c.click('#mic');
   await Promise.all([ready(a, 2), ready(b, 2), ready(c, 2)]);
   await audioReceived(c, 2); // Joins while both existing microphones are already active.
@@ -193,11 +217,17 @@ try {
     localStorage.setItem('microplanet.auth.v1',JSON.stringify(await response.json()));
   });
   await ui.reload();
+  await ui.waitForFunction(() => window.planetApp?.lobby.userId, null, {timeout:45000});
+  await ui.evaluate(async () => {
+    planetApp.authPanel.closeSettings();
+    await planetApp.lobby.action('');
+    await planetApp.lobby.action('/' + planetApp.lobby.current.id + '/start');
+  });
   await ui.waitForFunction(() => window.planetApp?.network.id, null, {timeout:45000});
   await ui.click('#microphone');
   await ui.waitForFunction(() => planetApp.voice.enabled);
   assert.equal(await ui.locator('#microphone').getAttribute('aria-pressed'), 'true');
-  await ui.waitForFunction(() => planetApp.fish.sequence>=0 && document.getElementById('connection').textContent.includes('В сети'));
+  await ui.waitForFunction(() => planetApp.network.worldTick>=0 && document.getElementById('connection').textContent.includes('В сети'));
   await ui.waitForTimeout(200); // Let the button's color transition finish before visual QA.
   if (process.env.VOICE_SCREENSHOT) await ui.screenshot({path:process.env.VOICE_SCREENSHOT});
   await ui.click('#microphone');

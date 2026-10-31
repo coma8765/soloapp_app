@@ -11,3 +11,8 @@
 .settings-open #welcome{display:none}
 
 #voice-controls{margin-top:12px;border-top:1px solid #edf4de22;padding-top:10px}#voice-controls button{width:100%;margin:4px 0;font-size:11px}#microphone[aria-pressed="true"]{background:#d4e39c;color:#203b31}#voice-status{font-size:11px;line-height:1.5;color:#d2e2dc;margin-top:6px}
+
+.lobby-open #welcome,.in-room #welcome{display:none}
+.counting-down #toolbar,.counting-down footer,.counting-down aside,.counting-down #crosshair{visibility:hidden;pointer-events:none}
+
+#gamepad-status{position:fixed;z-index:3;left:50%;bottom:78px;transform:translateX(-50%);max-width:90vw;padding:9px 14px;border:1px solid #bde5d144;border-radius:8px;background:#102c32e8;color:#d6eee1;font-size:12px;text-align:center;pointer-events:none}.in-vr #gamepad-status{display:none}@media(max-width:750px){#gamepad-status{bottom:104px;font-size:10px;width:max-content}}

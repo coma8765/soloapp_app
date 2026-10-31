@@ -1,8 +1,10 @@
 #include "simulation.hpp"
+#include "world_map.hpp"
 #include "auth.hpp"
 #include "auth_http.hpp"
 #include "rtc_config.hpp"
 #include "local_rtc_relay.hpp"
+#include "lobby.hpp"
 #include <drogon/drogon.h>
 #include <drogon/WebSocketController.h>
 #include <rtc/rtc.hpp>
@@ -13,6 +15,7 @@
 #include <sstream>
 #include <filesystem>
 #include <cstdlib>
+#include <algorithm>
 
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -31,12 +34,15 @@ bool parse(const std::string &text, Json::Value &value) {
 struct Session {
     int id = 0, generation = 0;
     Identity identity;
+    long long serverId = 0;
     drogon::WebSocketConnectionPtr socket;
     std::shared_ptr<rtc::PeerConnection> peer;
     std::shared_ptr<rtc::DataChannel> channel;
     std::vector<rtc::Candidate> pending;
     bool remoteDescription = false, closed = false;
     Vec3 position;
+    Json::Value rotation;
+    double pitch = 0;
     Json::Int64 sequence = -1;
     double lastPosition = -100, echo = 0, signalWindow = 0;
     int signalCount = 0;
@@ -44,7 +50,7 @@ struct Session {
 
 class Game {
 public:
-    Game(const std::string &navigation, AuthStore &auth_, const Json::Value &rtcConfig_) : simulation(navigation), auth(auth_), rtcConfig(rtcConfig_) {}
+    Game(AuthStore &auth_, LobbyStore &lobby_, const Json::Value &rtcConfig_) : auth(auth_), lobby(lobby_), rtcConfig(rtcConfig_) {}
 
     void send(const std::shared_ptr<Session> &session, const Json::Value &message) {
         if (!session->closed && session->socket->connected()) session->socket->send(jsonText(message));
@@ -67,12 +73,28 @@ public:
         socket->shutdown(drogon::CloseCode::kViolation, "Unauthorized");
     }
 
-    void join(const drogon::WebSocketConnectionPtr &socket, const Identity &identity) {
+    void rejectRoom(const drogon::WebSocketConnectionPtr &socket) {
+        pending.erase(socket.get());
+        Json::Value message; message["type"] = "room_error"; message["error"] = "Сервер недоступен или мир ещё не запущен.";
+        if (socket->connected()) socket->send(jsonText(message));
+        leave(socket); socket->shutdown(drogon::CloseCode::kViolation, "Room unavailable");
+    }
+
+    bool authorized(const std::shared_ptr<Session> &session) {
+        if (!auth.active(session->identity.digest)) { reject(session->socket); return false; }
+        if (!lobby.canConnect(session->identity.id, session->serverId)) { rejectRoom(session->socket); return false; }
+        return true;
+    }
+
+    void join(const drogon::WebSocketConnectionPtr &socket, const Identity &identity, long long serverId) {
         if (!socket->connected()) return;
-        if (sessions.size() >= 8) { socket->shutdown(drogon::CloseCode::kViolation, "Room is full"); return; }
+        if (!lobby.canConnect(identity.id, serverId)) { rejectRoom(socket); return; }
+        const auto count = std::count_if(sessions.begin(), sessions.end(), [serverId](const auto &entry) { return entry.second->serverId == serverId; });
+        if (count >= 8) { socket->shutdown(drogon::CloseCode::kViolation, "Room is full"); return; }
         auto session = std::make_shared<Session>();
         session->id = nextId++;
         session->identity = identity;
+        session->serverId = serverId;
         session->socket = socket;
         socket->setContext(std::make_shared<int>(session->id));
         Json::Value welcome;
@@ -81,10 +103,19 @@ public:
         welcome["world_protocol"] = 1;
         welcome["voice_protocol"] = 1;
         welcome["rtc_config"] = rtcConfig;
+        welcome["server_id"] = Json::Int64(serverId);
         welcome["user_id"] = Json::Int64(identity.id);
         welcome["expires_at"] = Json::Int64(identity.expires);
+        welcome["map"] = "white-room";
+        const auto room = lobby.get(serverId).body["server"];
+        for (const auto &member : room["members"]) if (member["id"].asInt64() == identity.id) {
+            const auto spawn = roomSpawn(member["spawn_slot"].asInt());
+            welcome["spawn"] = Json::Value(Json::arrayValue);
+            for (const double v : {spawn.x, spawn.y, spawn.z}) welcome["spawn"].append(v);
+        }
         welcome["peers"] = Json::Value(Json::arrayValue);
         for (const auto &[id, other] : sessions) {
+            if (other->serverId != serverId) continue;
             welcome["peers"].append(id);
             Json::Value joined;
             joined["type"] = "joined";
@@ -125,7 +156,7 @@ public:
         Json::Value left;
         left["type"] = "left";
         left["id"] = session->id;
-        for (const auto &[id, other] : sessions) send(other, left);
+        for (const auto &[id, other] : sessions) if (other->serverId == session->serverId) send(other, left);
         std::cout << "LEAVE " << session->id << std::endl;
     }
 
@@ -192,17 +223,27 @@ public:
     }
 
     void playerPosition(const std::shared_ptr<Session> &session, const std::string &text) {
-        if (!auth.active(session->identity.digest)) { reject(session->socket); return; }
+        if (!authorized(session)) return;
         Json::Value message;
         if (!parse(text, message) || message["type"] != "player" || !message["sequence"].isInt64()) return;
         const auto &p = message["position"];
         if (!p.isArray() || p.size() != 3) return;
         for (const auto &coordinate : p) if (!coordinate.isNumeric() || !std::isfinite(coordinate.asDouble())) return;
         const Vec3 position{p[0].asDouble(), p[1].asDouble(), p[2].asDouble()};
+        const auto &rotation = message["rotation"];
+        if (!rotation.isArray() || rotation.size() != 4 || !message["pitch"].isNumeric()) return;
+        double norm = 0;
+        for (const auto &v : rotation) {
+            if (!v.isNumeric() || !std::isfinite(v.asDouble())) return;
+            norm += v.asDouble() * v.asDouble();
+        }
+        const double pitch = message["pitch"].asDouble();
+        if (std::abs(std::sqrt(norm) - 1) >= .05 || !std::isfinite(pitch) || std::abs(pitch) > 1.570797) return;
         const auto sequence = message["sequence"].asInt64();
-        if (sequence <= session->sequence || position.length() < 20 || position.length() > 50) return;
+        if (sequence <= session->sequence || !validRoomPosition(position)) return;
         session->sequence = sequence;
         session->position = position;
+        session->rotation = rotation; session->pitch = pitch;
         session->lastPosition = now();
         if (message["sent"].isNumeric()) session->echo = message["sent"].asDouble();
     }
@@ -216,10 +257,10 @@ public:
             const auto identity = auth.authorize(message["token"].asString());
             if (!identity) { reject(socket); return; }
             pending.erase(socket.get());
-            join(socket, *identity);
+            join(socket, *identity, message["server_id"].isInt64() ? message["server_id"].asInt64() : 0);
             return;
         }
-        if (!auth.active(session->identity.digest)) { reject(socket); return; }
+        if (!authorized(session)) return;
         if (text.size() > 65536) { socket->shutdown(); return; }
         if (now() - session->signalWindow > 1) { session->signalWindow = now(); session->signalCount = 0; }
         if (++session->signalCount > 150) { socket->shutdown(); return; }
@@ -247,7 +288,7 @@ public:
             }
             if (!message["to"].isInt()) return;
             const int target = message["to"].asInt();
-            if (target == session->id || !sessions.count(target)) return;
+            if (target == session->id || !sessions.count(target) || sessions.at(target)->serverId != session->serverId) return;
             Json::Value relay;
             relay["type"] = type;
             relay["from"] = session->id;
@@ -266,26 +307,41 @@ public:
     }
 
     void tick() {
-        std::vector<drogon::WebSocketConnectionPtr> expired;
-        for (const auto &[id, session] : sessions) if (!auth.active(session->identity.digest)) expired.push_back(session->socket);
-        for (const auto &socket : expired) reject(socket);
-        std::vector<Vec3> players;
-        for (const auto &[id, session] : sessions) if (now() - session->lastPosition < 3.0) players.push_back(session->position);
-        simulation.step(0.05, players);
-        if (++ticks % 2 != 0) return;
-        auto snapshot = simulation.snapshot();
-        for (const auto &[id, session] : sessions) {
-            if (!session->channel || !session->channel->isOpen() || session->channel->bufferedAmount() > 16384) continue;
-            snapshot["ack"] = session->sequence;
-            snapshot["echo"] = session->echo;
-            try { session->channel->send(jsonText(snapshot)); }
-            catch (const std::exception &error) { LOG_WARN << "World send: " << error.what(); }
+        std::vector<std::shared_ptr<Session>> current;
+        for (const auto &[id, session] : sessions) current.push_back(session);
+        for (const auto &session : current) authorized(session);
+        const auto running = lobby.running();
+        ++ticks;
+        if (ticks % 2 != 0) return;
+        for (const auto serverId : running) {
+            Json::Value snapshot;
+            snapshot["type"] = "world"; snapshot["map"] = "white-room";
+            snapshot["sequence"] = ticks;
+            snapshot["server_id"] = Json::Int64(serverId);
+            // Also deliver poses over the authenticated server RTC channel when
+            // a browser-to-browser ICE route is unavailable (for example mDNS).
+            snapshot["players"] = Json::Value(Json::arrayValue);
+            for (const auto &[id, member] : sessions) {
+                if (member->serverId != serverId || now() - member->lastPosition >= 3 || member->sequence < 0) continue;
+                Json::Value state;
+                state["id"] = id; state["type"] = "state"; state["map"] = "white-room";
+                state["sequence"] = member->sequence; state["pitch"] = member->pitch; state["rotation"] = member->rotation;
+                state["position"] = Json::Value(Json::arrayValue);
+                for (const double v : {member->position.x, member->position.y, member->position.z}) state["position"].append(v);
+                snapshot["players"].append(state);
+            }
+            for (const auto &[id, session] : sessions) {
+                if (session->serverId != serverId || !session->channel || !session->channel->isOpen() || session->channel->bufferedAmount() > 16384) continue;
+                snapshot["ack"] = session->sequence; snapshot["echo"] = session->echo;
+                try { session->channel->send(jsonText(snapshot)); }
+                catch (const std::exception &error) { LOG_WARN << "World send: " << error.what(); }
+            }
         }
     }
 
 private:
-    Simulation simulation;
     AuthStore &auth;
+    LobbyStore &lobby;
     Json::Value rtcConfig;
     std::map<const drogon::WebSocketConnection *, std::weak_ptr<drogon::WebSocketConnection>> pending;
     std::map<int, std::shared_ptr<Session>> sessions;
@@ -335,7 +391,9 @@ int main(int argc, char **argv) {
         const auto relativeDb = std::filesystem::weakly_canonical(authPath).lexically_relative(std::filesystem::weakly_canonical(webRoot));
         if (authPath != ":memory:" && !relativeDb.empty() && *relativeDb.begin() != "..") throw std::runtime_error("Auth database must be outside the public directory");
         AuthStore auth(authPath);
+        LobbyStore lobby(authPath);
         installAuthRoutes(auth);
+        installLobbyRoutes(auth, lobby);
         if (!rtcConfigPath.empty()) {
             const auto relativeConfig = std::filesystem::weakly_canonical(rtcConfigPath).lexically_relative(std::filesystem::weakly_canonical(webRoot));
             if (!relativeConfig.empty() && *relativeConfig.begin() != "..") throw std::runtime_error("RTC config must be outside the public directory");
@@ -346,7 +404,7 @@ int main(int argc, char **argv) {
             localRelay = std::make_unique<LocalRtcRelay>();
             rtcConfig = localRelay->configuration();
         }
-        game = std::make_unique<Game>(navigation, auth, rtcConfig);
+        game = std::make_unique<Game>(auth, lobby, rtcConfig);
         drogon::app().setLogLevel(trantor::Logger::kWarn).setThreadNum(1).setClientMaxWebSocketMessageSize(65536).addListener("127.0.0.1", port);
         drogon::app().setDocumentRoot(std::filesystem::absolute(webRoot).string()).setHomePage("index.html")
             .setFileTypes({"html", "js", "css", "json", "svg", "gz", "glb"}).setStaticFilesCacheTime(-1);

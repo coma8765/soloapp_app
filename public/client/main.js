@@ -5,22 +5,25 @@ import {Network} from './network.js';
 import {NatureAudio} from './audio.js';
 import {XRView} from './xr.js';
 import {Auth} from './auth.js';
-import {AuthPanel} from './auth-panel.js';
+import {AccountPanel} from './account-panel.js';
+import {AvatarPreferences} from './avatar-catalog.js';
 import {VisualQuality} from './quality.js';
 import {setupFullscreen} from './fullscreen.js';
 const $=id=>document.getElementById(id);
 async function start(){
  setupFullscreen($('fullscreen'),$('display-status'));
  const auth=new Auth();
+ const preferences=new AvatarPreferences();
  const B=window.BABYLON;if(!B)throw Error('Не удалось загрузить Babylon.js. Перезапустите сервер и обновите страницу.');
  // VisualQuality owns display scaling; avoid applying devicePixelRatio twice on resize.
  const engine=new B.Engine($('world'),true,{preserveDrawingBuffer:false,stencil:true},false);
  const scene=new B.Scene(engine);scene.useRightHandedSystem=true;
  const response=await fetch('/assets/world.json');if(!response.ok)throw Error('Данные мира недоступны');const data=await response.json();
- const terrain=new Terrain(data),planet=new PlanetScene(scene,data),player=new Player(scene,terrain,planet,$('world')),fish=new FishView(scene,data.fishProfiles),sound=new NatureAudio(terrain);
+ const terrain=new Terrain(data),planet=new PlanetScene(scene,data),player=new Player(scene,terrain,planet,$('world'),preferences.id),fish=new FishView(scene,data.fishProfiles),sound=new NatureAudio(terrain);
  const quality=new VisualQuality(engine,scene,player,$('quality'));
  let network,xr,authPanel,signingIn=false,loggingOut=false;
  async function signIn(message=''){
+   if(authPanel?.settingsOpen)authPanel.closeSettings();
    document.exitPointerLock();
    const ready=auth.require(message);
    if(authPanel)authPanel.recenter=true;
@@ -41,11 +44,12 @@ async function start(){
  $('explore').disabled=false;$('explore').textContent='Начать исследование ↗';
  const unlock=()=>sound.start().catch(()=>{});
  const explore=()=>{document.activeElement?.blur();if(player.overview)player.toggleOverview();unlock();if(!xr.active)$('world').requestPointerLock()?.catch(()=>{});};
- authPanel=new AuthPanel(scene,auth,player,$('world'),explore);xr.authPanel=authPanel;
+ authPanel=new AccountPanel(scene,auth,player,$('world'),explore,preferences);xr.authPanel=authPanel;
+ $('settings').onclick=()=>authPanel.openSettings();
  $('explore').onclick=explore;$('auth-walk').onclick=explore;$('world').addEventListener('click',unlock);
  document.addEventListener('pointerlockchange',()=>{
    if(document.pointerLockElement===$('world'))$('auth-dialog').close();
-   else if(!auth.token&&!xr.active){auth.require();authPanel.recenter=true;}
+   else if(!auth.token&&!xr.active&&!authPanel.settingsOpen){auth.require();authPanel.recenter=true;}
  });
  $('reconnect').onclick=()=>network.connect();$('overview').onclick=()=>{if(!xr.active)player.toggleOverview();};$('view').onclick=()=>{if(!xr.active&&!player.overview)player.third=!player.third;};
  const mute=()=>{sound.toggle();$('sound').textContent='M · Звук '+(sound.muted?'выключен':'включён');};$('sound').onclick=mute;

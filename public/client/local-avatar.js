@@ -1,10 +1,12 @@
 import { avatar } from './scene.js';
+import { DEFAULT_AVATAR, findAvatar } from './avatar-catalog.js';
 const B = window.BABYLON;
 
 // The downloaded CC0 base has a skin but no animation clips. Pose its linked
 // transform nodes so Babylon updates the glTF skin on both CPU and GPU paths.
 export class LocalAvatar {
-  constructor(scene) {
+  constructor(scene, initialId = DEFAULT_AVATAR) {
+    this.scene = scene;
     this.root = new B.TransformNode('local-player', scene);
     this.root.rotationQuaternion = B.Quaternion.Identity();
     this.root.setEnabled(false);
@@ -12,14 +14,24 @@ export class LocalAvatar {
     this.fallback.parent = this.root;
     this.phase = 0;
     this.stride = 0;
-    this.ready = this.load(scene);
+    this.generation = 0;
+    this.root.onDisposeObservable.addOnce(() => { this.generation++; this.container?.dispose(); });
+    this.select(initialId);
   }
 
-  async load(scene) {
+  select(id) {
+    const definition = findAvatar(id);
+    if (!definition) return Promise.resolve(false);
+    this.ready = this.load(definition, ++this.generation);
+    return this.ready;
+  }
+
+  async load(definition, generation) {
+    const scene = this.scene;
     let container;
     try {
-      container = await B.LoadAssetContainerAsync('/assets/avatar/player.glb', scene);
-      if (this.root.isDisposed()) { container.dispose(); return false; }
+      container = await B.LoadAssetContainerAsync(definition.url, scene);
+      if (this.root.isDisposed() || generation !== this.generation) { container.dispose(); return false; }
       const skeleton = container.skeletons[0];
       if (!skeleton) throw Error('Avatar has no skeleton');
       const names = ['upperarm_l', 'upperarm_r', 'thigh_l', 'thigh_r', 'calf_l', 'calf_r', 'Head'];
@@ -34,30 +46,36 @@ export class LocalAvatar {
           z: B.Vector3.TransformNormal(B.Axis.Z, inverse).normalize(),
         });
       }
-      this.model = new B.TransformNode('human-avatar', scene);
-      this.model.parent = this.root;
+      const previousContainer = this.container, previousModel = this.model;
+      const model = new B.TransformNode('human-avatar', scene);
+      model.parent = this.root;
       // glTF faces +Z; the game's right-handed player frame faces -Z.
-      this.model.rotation.y = Math.PI;
-      this.model.scaling.setAll(1.8 / 1.81958638317883);
-      this.model.position.y = .009509669616818428 * this.model.scaling.y;
+      model.rotation.y = Math.PI;
+      model.scaling.setAll(1.8 / definition.height);
+      model.position.y = -definition.floor * model.scaling.y;
       container.addAllToScene();
-      for (const node of container.rootNodes) node.parent = this.model;
+      for (const node of container.rootNodes) node.parent = model;
       for (const mesh of container.meshes) {
         mesh.isPickable = false;
         // Animated limbs may leave the tight T-pose bounds (notably in overview).
         if (mesh.skeleton) mesh.alwaysSelectAsActiveMesh = true;
       }
       this.joints = joints;
+      this.model = model;
       this.skeleton = skeleton;
       this.container = container;
       this.pose(0);
+      this.id = definition.id;
+      this.error = null;
       this.fallback.setEnabled(false);
-      this.root.onDisposeObservable.addOnce(() => container.dispose());
+      previousContainer?.dispose();
+      previousModel?.dispose();
       return true;
     } catch (error) {
       container?.dispose();
+      if (generation !== this.generation || this.root.isDisposed()) return false;
       this.error = error;
-      console.warn('Local avatar: keeping the capsule fallback.', error);
+      console.warn('Local avatar: keeping the previous avatar or capsule fallback.', error);
       return false;
     }
   }

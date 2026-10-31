@@ -3,12 +3,12 @@ import {LocalAvatar} from './local-avatar.js';
 import {WATER_RADIUS,clamp} from '../shared/world.js';
 const B=window.BABYLON;
 export class Player {
- constructor(scene,terrain,planet,canvas){
+ constructor(scene,terrain,planet,canvas,avatarId){
    this.inputEnabled=true;
    this.scene=scene;this.terrain=terrain;this.planet=planet;this.canvas=canvas;this.position=vec(terrain.spawn());this.forward=new B.Vector3(0,0,-1);this.pitch=-.18;this.radialSpeed=0;this.keys=new Set();this.third=false;this.overview=false;this.xr=false;this.angle=.6;this.speed=0;this.rotation=B.Quaternion.Identity();
    this.camera=new B.FreeCamera('player-view',this.position.clone(),scene);this.camera.inputs.clear();this.camera.minZ=.05;this.camera.maxZ=400;this.camera.fov=75*Math.PI/180;this.camera.rotationQuaternion=B.Quaternion.Identity();this.camera.updateUpVectorFromRotation=true;
    this.overviewCamera=new B.FreeCamera('overview',new B.Vector3(60,65,70),scene);this.overviewCamera.inputs.clear();this.overviewCamera.minZ=.1;this.overviewCamera.maxZ=400;this.overviewCamera.fov=55*Math.PI/180;
-   this.avatar=new LocalAvatar(scene);this.body=this.avatar.root;scene.activeCamera=this.camera;
+   this.avatar=new LocalAvatar(scene,avatarId);this.body=this.avatar.root;scene.activeCamera=this.camera;
    canvas.addEventListener('click',()=>{if(this.inputEnabled&&!this.overview&&!this.xr)canvas.requestPointerLock()?.catch(()=>{});});
    window.addEventListener('keydown',e=>{if(!this.inputEnabled||e.target.closest?.('input,textarea,select,button,[contenteditable]'))return;if(['Tab','KeyW','KeyA','KeyS','KeyD','Space'].includes(e.code))e.preventDefault();this.keys.add(e.code);if(e.repeat)return;
      if(e.code==='Tab'&&!this.xr)this.toggleOverview();if(e.code==='KeyV'&&!this.xr&&!this.overview)this.third=!this.third;

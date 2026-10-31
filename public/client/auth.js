@@ -86,6 +86,7 @@ export class Auth {
         $('display-status').textContent = 'Вход выполнен, но браузер не разрешил сохранить сессию. После обновления потребуется войти снова.';
       }
       this.accept(data);
+      this.onSignIn?.({ registered: this.registration });
     } catch (error) {
       $('auth-error').textContent = error.name === 'TypeError' || error.name === 'TimeoutError'
         ? 'Сервер не отвечает. Проверьте соединение и повторите вход.' : error.message;

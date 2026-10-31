@@ -41,9 +41,9 @@ export class XRView {
  }
  exit(){if(this.active){this.planet.setXRQuality(false);this.planet.grass.thinInstanceCount=this.savedGrass;this.active=false;this.player.xr=false;this.hud.setEnabled(false);document.body.classList.remove('in-vr');}
    this.scene.activeCamera=this.player.overview?this.player.overviewCamera:this.player.camera;this.player.update(0);
-   if(this.authPanel){this.authPanel.xr=false;this.authPanel.recenter=true;this.authPanel.hideRays();}
+   if(this.authPanel){this.authPanel.xr=false;this.authPanel.recenter=true;this.authPanel.hideRays();this.authPanel.sync();}
  }
- input(){if(!this.active||!this.player.inputEnabled)return null;
+ input(){if(!this.active)return null;
    const session=this.helper.sessionManager.session;if(session.visibilityState!=='visible'){this.armed=true;this.aDown=false;return B.Vector3.Zero();}
    let x=0,y=0,turn=0,pressed=false,menu=false;
    for(const source of session.inputSources){const gp=source.gamepad;if(!gp)continue;const axes=gp.axes;
@@ -51,10 +51,9 @@ export class XRView {
      if(source.handedness==='right'){turn=axes.length>=4?axes[2]:axes[0]||0;pressed=!!gp.buttons[4]?.pressed;menu=!!gp.buttons[5]?.pressed;}
    }
    if(pressed&&!this.aDown){this.visible=!this.visible;this.hud.setEnabled(this.visible);}this.aDown=pressed;
-   if(menu&&!this.bDown&&this.authPanel&&!this.authPanel.auth.token){
-     const dialog=document.getElementById('auth-dialog');
-     if(dialog.open)dialog.close();else{this.authPanel.auth.require();this.authPanel.recenter=true;}
-   }this.bDown=menu;
+   if(menu&&!this.bDown)this.authPanel?.toggleMenu();this.bDown=menu;
+   // Menu buttons remain usable while settings suspend locomotion.
+   if(!this.player.inputEnabled)return B.Vector3.Zero();
    if(Math.abs(turn)<.3)this.armed=true;
    if(Math.abs(turn)>.7&&this.armed){
      this.armed=false;

@@ -21,14 +21,14 @@
     "public/vendor/babylon.js": "37c77bf920c0d7a3912c28a6120479f3d08fccd87a75e1f7558f76bd124cc6c4",
     "public/assets/avatar/player.glb": "8711d8ac735cf0418384fec1ebabb75d1d11fe8cb7edd2710924f1fdd991cf1b",
     "public/assets/avatar/LICENSE.txt": "c232257c8a2545520aa120cda96acb23d00a355d2e3339cba20b7ebf56f28a09",
-    "public/vendor/babylonjs.loaders.min.js": "fb6e975962c8ed333e6ccefc4fe46eac9c5f989419e3347198e795b96e86c5b3"
+    "public/vendor/babylonjs.loaders.min.js": "fb6e975962c8ed333e6ccefc4fe46eac9c5f989419e3347198e795b96e86c5b3",
+    "public/assets/avatar/player-female.glb": "a1925ef139cd2c2a6d5af591b5ea9b7df14ef40cbe666cda2f587a5610c4ad18"
   },
   "instanceExport": "CPU placement matrices captured before MultiMesh upload; compatible with Godot headless dummy renderer.",
   "localAvatar": {
     "source": "https://quaternius.itch.io/universal-base-characters",
     "author": "Quaternius",
     "pack": "Universal Base Characters [Standard]",
-    "model": "Superhero_Male_FullBody.gltf",
     "license": "CC0-1.0",
     "licenseFile": "public/assets/avatar/LICENSE.txt",
     "sourceArchiveSha256": "fdbf1804c90dfc1ea03e992bff7da2dfd1a79318e13270a660180f9308455f40",
@@ -37,6 +37,10 @@
       "Resampled PNGs to a maximum of 1024 pixels with macOS sips, retaining alpha.",
       "Embedded original geometry, 65-joint skin and resized PNGs in GLB 2.0; no external resources or animation clips."
     ],
-    "loaderSource": "https://cdn.jsdelivr.net/npm/babylonjs-loaders@8.56.2/babylonjs.loaders.min.js"
+    "loaderSource": "https://cdn.jsdelivr.net/npm/babylonjs-loaders@8.56.2/babylonjs.loaders.min.js",
+    "models": [
+      "Superhero_Male_FullBody.gltf",
+      "Superhero_Female_FullBody.gltf"
+    ]
   }
 }

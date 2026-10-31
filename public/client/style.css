@@ -9,7 +9,7 @@
 @media(max-width:750px){#auth-dialog{left:16px;top:50%}.spatial-ui .spatial-dialog{left:0;top:0}#toolbar{max-width:calc(100vw - 160px)}#telemetry{top:160px;width:185px}.spatial-ui.auth-required:not(.playing) #telemetry{display:none}}
 
 .settings-open #welcome{display:none}
-#professor-controls{position:fixed;left:28px;bottom:85px;z-index:4;max-width:340px}#professor-status{font-size:12px;color:#f1f5db;background:#173b43}#professor-status:empty{display:none}#professor-record[aria-pressed="true"]{background:#b94b4b;color:white}.in-vr #professor-controls,.in-room #professor-controls{display:none}
+#professor-status{font-size:11px;line-height:1.5;color:#f1f5db;margin-top:6px}#professor-status:empty,.in-room #professor-status{display:none}
 
 #voice-controls{margin-top:12px;border-top:1px solid #edf4de22;padding-top:10px}#voice-controls button{width:100%;margin:4px 0;font-size:11px}#microphone[aria-pressed="true"]{background:#d4e39c;color:#203b31}#voice-status{font-size:11px;line-height:1.5;color:#d2e2dc;margin-top:6px}
 

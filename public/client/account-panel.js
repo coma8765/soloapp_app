@@ -379,7 +379,6 @@ export class AccountPanel {
   targetAt(pick) {
     if (!pick?.hit) return null;
     if (pick.pickedMesh === this.gear) return this.gear.isEnabled() ? this.gearTarget : null;
-    if (!this.visible && this.worldPanel?.isInteractiveMesh(pick.pickedMesh)) return this.worldPanel.targetAt(pick);
     if (pick.pickedMesh !== this.mesh || !this.visible) return null;
     const uv = pick?.getTextureCoordinates();
     if (!uv) return null;
@@ -388,9 +387,9 @@ export class AccountPanel {
   }
 
   pickMouse(event) {
-    if (this.xr) return null;
+    if (!this.visible || this.xr) return null;
     const rect = this.canvas.getBoundingClientRect();
-    const hit = this.scene.pick(event.clientX - rect.left, event.clientY - rect.top, mesh => this.isInteractiveMesh(mesh));
+    const hit = this.scene.pick(event.clientX - rect.left, event.clientY - rect.top, mesh => mesh === this.mesh);
     return hit?.hit ? hit : null;
   }
 
@@ -405,12 +404,11 @@ export class AccountPanel {
   }
 
   isInteractiveMesh(mesh) {
-    return (mesh === this.mesh && this.visible) || (mesh === this.gear && this.gear.isEnabled()) ||
-      (!this.visible && !!this.worldPanel?.isInteractiveMesh(mesh));
+    return (mesh === this.mesh && this.visible) || (mesh === this.gear && this.gear.isEnabled());
   }
 
   updateXR(frame, referenceSpace, origin) {
-    if (!this.xr || (!this.visible && !this.gear.isEnabled() && this.worldPanel?.nearest == null)) { this.hideRays(); return; }
+    if (!this.xr || (!this.visible && !this.gear.isEnabled())) { this.hideRays(); return; }
     this.hover = '';
     for (const visual of this.rays.values()) visual.setEnabled(false);
     for (const source of frame.session.inputSources) {
@@ -432,7 +430,7 @@ export class AccountPanel {
   }
 
   selectXR(event, referenceSpace, origin) {
-    if (!this.visible && !this.gear.isEnabled() && this.worldPanel?.nearest == null) return;
+    if (!this.visible && !this.gear.isEnabled()) return;
     const ray = this.xrRay(event.frame, event.inputSource, referenceSpace, origin);
     if (ray) this.activate(this.targetAt(this.scene.pickWithRay(ray, mesh => this.isInteractiveMesh(mesh))));
   }

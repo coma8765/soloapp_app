@@ -30,14 +30,11 @@ async function start(){
  const quality=new VisualQuality(engine,scene,player,$('quality'));
  const room=new WhiteRoom(scene,player,planet,fish);
  const professorRecorder=new ProfessorRecorder(()=>{
-   $('professor-record').textContent=professorRecorder.enabled?'P · Остановить запись':professorRecorder.pending?'Отменить запрос микрофона':'P · Речь у озера';
-   $('professor-record').setAttribute('aria-pressed',String(professorRecorder.enabled));
    $('professor-status').textContent=professorRecorder.error||(professorRecorder.enabled?(professorRecorder.target===null?'Микрофон включён · вне зоны профессоров аудио не обрабатывается':'● Запись у озера '+(professorRecorder.target+1)+' · локальный Whisper'):'');
  });
  const professors=new LakeProfessors(scene,terrain,planet,professorRecorder);
- $('professor-record').onclick=()=>{if(!room.serverId)void professorRecorder.toggle();};
  window.addEventListener('pagehide',()=>professorRecorder.clear());
- document.addEventListener('visibilitychange',()=>{if(document.hidden)void professorRecorder.stop();});
+ document.addEventListener('visibilitychange',()=>syncProfessorVoice());
  let network,lobby,xr,authPanel,signingIn=false,loggingOut=false;
  async function signIn(message=''){
    if(authPanel?.settingsOpen)authPanel.closeSettings();
@@ -48,7 +45,8 @@ async function start(){
    await ready;signingIn=false;lobby.activate();
  }
  const voice=new VoiceChat(()=>{
-   $('microphone').disabled=!voice.online;
+   $('microphone').disabled=!voice.available;
+   syncProfessorVoice();
    $('microphone').textContent=voice.pending?'Отменить запрос микрофона':`N · Микрофон ${voice.enabled?'вкл':'выкл'}`;
    $('microphone').setAttribute('aria-pressed',String(voice.enabled));
    $('voice-playback').textContent=voice.muted?'Слышать участников':'Заглушить участников';
@@ -56,7 +54,8 @@ async function start(){
    $('voice-status').textContent=voice.status;
    $('voice-unlock').hidden=!voice.playbackBlocked;
  });
- voice.onChange();
+ function syncProfessorVoice(){void professorRecorder.setVoiceStream(!room.serverId&&!document.hidden?voice.stream:null);}
+ voice.localAllowed=true; voice.onChange();
  $('microphone').onclick=()=>void voice.toggle();
  $('voice-playback').onclick=()=>voice.togglePlayback();
  $('voice-unlock').onclick=()=>voice.unlock();
@@ -66,8 +65,8 @@ async function start(){
    try{await Promise.race([Promise.all([scene.whenReadyAsync(),room.prepare()]),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('Подготовка графики заняла слишком много времени.')),30000);})]);}
    finally{clearTimeout(timeout);}
  },()=>{void signIn('Сессия завершена. Войдите снова.');},{
-   enter:(server,userId)=>{professorRecorder.clear();room.enter(server,userId);if(authPanel)authPanel.recenter=true;},
-   leave:()=>{if(room.serverId){room.leave();if(authPanel)authPanel.recenter=true;}}
+   enter:(server,userId)=>{professorRecorder.clear();room.enter(server,userId);voice.localAllowed=false;voice.onChange();if(authPanel)authPanel.recenter=true;},
+   leave:()=>{if(room.serverId){room.leave();voice.localAllowed=true;voice.onChange();if(authPanel)authPanel.recenter=true;}}
  });
  network.onRoomRequired=()=>{lobby.show();void lobby.poll();};
  window.addEventListener('pagehide',()=>network.disconnect());
@@ -78,16 +77,15 @@ async function start(){
    const message=await auth.logout();loggingOut=false;void signIn(message);
  };
  let fps=0;
- function info(){if(room.serverId)return `БЕЛАЯ КОМНАТА\n${Math.round(fps)} FPS\n${network.status} · ID ${network.id||'—'}\nИгроки ${network.peers.size+1} / 8\n${network.worldTransport} · RTT ${network.ping??'—'} мс\ntick ${network.worldTick}\nГолос · ${voice.enabled?'микрофон вкл':'микрофон выкл'} · X`;const depth=Math.max(0,WATER_RADIUS-player.position.length());return `MICRO / PLANET\n${Math.round(fps)} FPS · ${scene.getActiveMeshes().length} meshes\n${network.status} · ID ${network.id||'—'}\nИгроки ${network.peers.size+1} / 8 · RTT ${network.ping??'—'} мс\nWebRTC RX ${network.rx}\nРыбы · ${network.worldTransport} · tick ${fish.sequence}\n${depth>.05?'Глубина '+depth.toFixed(1)+' м':'На суше'}\nЗвук ${sound.muted?'выключен':'включён'}\nПрофессор · ${professorRecorder.enabled?(professorRecorder.target===null?'вне зоны':'слушает'):professorRecorder.pending?'ожидание':'микрофон выкл'} · X${professorRecorder.error?'\n'+professorRecorder.error:''}${[...network.remotes].slice(0,3).map(([id,r])=>'\n#'+id+' · '+(Math.acos(clamp(B.Vector3.Dot(player.position.normalizeToNew(),r.node.position.normalizeToNew()),-1,1))*38).toFixed(1)+' м').join('')}`;}
+ function info(){if(room.serverId)return `БЕЛАЯ КОМНАТА\n${Math.round(fps)} FPS\n${network.status} · ID ${network.id||'—'}\nИгроки ${network.peers.size+1} / 8\n${network.worldTransport} · RTT ${network.ping??'—'} мс\ntick ${network.worldTick}\nГолос · ${voice.enabled?'микрофон вкл':'микрофон выкл'} · X`;const depth=Math.max(0,WATER_RADIUS-player.position.length());return `MICRO / PLANET\n${Math.round(fps)} FPS · ${scene.getActiveMeshes().length} meshes\n${network.status} · ID ${network.id||'—'}\nИгроки ${network.peers.size+1} / 8 · RTT ${network.ping??'—'} мс\nWebRTC RX ${network.rx}\nРыбы · ${network.worldTransport} · tick ${fish.sequence}\n${depth>.05?'Глубина '+depth.toFixed(1)+' м':'На суше'}\nЗвук ${sound.muted?'выключен':'включён'}\nГолос · ${voice.enabled?'микрофон вкл':'микрофон выкл'} · X\nПрофессор · ${professorRecorder.enabled?(professorRecorder.target===null?'вне зоны':'слушает'):professorRecorder.pending?'подключение':'ожидание'}${professorRecorder.error?'\n'+professorRecorder.error:''}${[...network.remotes].slice(0,3).map(([id,r])=>'\n#'+id+' · '+(Math.acos(clamp(B.Vector3.Dot(player.position.normalizeToNew(),r.node.position.normalizeToNew()),-1,1))*38).toFixed(1)+' м').join('')}`;}
  xr=new XRView(scene,player,planet,$('vr'),info);
- xr.toggleMicrophone=()=>{if(room.serverId)void voice.toggle();else void professorRecorder.toggle();};
+ xr.toggleMicrophone=()=>void voice.toggle();
  $('vr-quality').onclick=()=>{xr.highQuality=!xr.highQuality;$('vr-quality').textContent=xr.highQuality?'VR · детально':'VR · плавно';$('vr-quality').setAttribute('aria-pressed',String(xr.highQuality));};
  if(!auth.token)void signIn();else lobby.activate();
  $('explore').disabled=false;$('explore').textContent='Начать исследование ↗';
  const unlock=()=>{voice.unlock();sound.start().catch(()=>{});};
  const explore=()=>{document.activeElement?.blur();if(player.overview)player.toggleOverview();unlock();if(!xr.active)$('world').requestPointerLock()?.catch(()=>{});};
  authPanel=new AccountPanel(scene,auth,player,$('world'),explore,preferences);authPanel.lobby=lobby;xr.authPanel=authPanel;
- authPanel.worldPanel=professors;
  $('settings').onclick=()=>authPanel.openSettings();
  const gamepad=new GamepadControls(player,authPanel,xr,$('gamepad-status'));
  const marine=new MarineLife(scene,terrain,planet,player,$('world'),authPanel,xr,gamepad);xr.marine=marine;
@@ -101,7 +99,6 @@ async function start(){
  const mute=()=>{sound.toggle();$('sound').textContent='M · Звук '+(sound.muted?'выключен':'включён');};$('sound').onclick=mute;
  window.addEventListener('keydown',e=>{if(player.inputEnabled&&!e.target.closest?.('input,textarea,select,button,[contenteditable]')&&e.code==='KeyM'&&!e.repeat)mute();});
  window.addEventListener('keydown',e=>{if(player.inputEnabled&&!e.target.closest?.('input,textarea,select,button,[contenteditable]')&&e.code==='KeyN'&&!e.repeat)void voice.toggle();});
- window.addEventListener('keydown',e=>{if(!room.serverId&&player.inputEnabled&&!authPanel.visible&&!e.target.closest?.('input,textarea,select,button,[contenteditable]')&&e.code==='KeyP'&&!e.repeat)void professorRecorder.toggle();});
  window.addEventListener('resize',()=>engine.resize());
  let previous=performance.now(),hudAt=0;
  engine.runRenderLoop(()=>{
@@ -114,7 +111,6 @@ async function start(){
    const camera=scene.activeCamera;camera.computeWorldMatrix();planet.update(dt,camera);
    professors.update(dt,player,camera,!room.serverId);
    marine.update(dt);
-   $('professor-record').hidden=!!room.serverId;
    const underwater=!room.serverId&&!player.overview&&camera.globalPosition.length()<WATER_RADIUS;sound.update(player,underwater);
    $('underwater').style.display=underwater?'block':'none';document.body.classList.toggle('playing',(document.pointerLockElement===$('world')||gamepad.active&&!authPanel.visible)&&!player.overview);document.body.classList.toggle('overview',player.overview);
    if(now>hudAt){hudAt=now+250;fps=engine.getFps();$('connection').textContent=network.status+(network.id?' · #'+network.id:'');

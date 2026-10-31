@@ -316,7 +316,7 @@ int main(int argc, char **argv) {
         game = std::make_unique<Game>(navigation, auth);
         drogon::app().setLogLevel(trantor::Logger::kWarn).setThreadNum(1).setClientMaxWebSocketMessageSize(65536).addListener("127.0.0.1", port);
         drogon::app().setDocumentRoot(std::filesystem::absolute(webRoot).string()).setHomePage("index.html")
-            .setFileTypes({"html", "js", "css", "json", "svg", "gz"}).setStaticFilesCacheTime(-1);
+            .setFileTypes({"html", "js", "css", "json", "svg", "gz", "glb"}).setStaticFilesCacheTime(-1);
         drogon::app().getLoop()->runEvery(0.05, [] { game->tick(); });
         std::cout << "MICRO / PLANET http://127.0.0.1:" << port << " | C++ / Babylon.js / WebRTC" << std::endl;
         drogon::app().run();

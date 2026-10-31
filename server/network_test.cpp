@@ -180,6 +180,9 @@ int main(int argc, char **argv) {
             if (!ready) std::this_thread::sleep_for(50ms);
         }
         check(ready, "Server did not start");
+        const auto avatar = request("/assets/avatar/player.glb", drogon::Get, {});
+        check(avatar->statusCode() == 200 && avatar->body().size() > 12 &&
+              avatar->body().substr(0, 4) == "glTF", "Local avatar GLB is not served before login");
         Json::Value credentials; credentials["email"] = "test@example.com"; credentials["password"] = "password123";
         auto result = request("/api/auth/register", drogon::Post, credentials);
         check(result->statusCode() == 201, "Registration endpoint failed");

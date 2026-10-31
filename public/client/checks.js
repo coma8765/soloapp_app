@@ -1,7 +1,7 @@
 import { Terrain } from '../shared/world.js';
 import { PlanetScene, FishView } from './scene.js';
 import { Player } from './player.js';
-import { verifyInstancePlacements, verifyCameraFrame } from './regression.js';
+import { verifyInstancePlacements, verifyCameraFrame, verifyLocalAvatar } from './regression.js';
 const B = window.BABYLON;
 const output = document.getElementById('results');
 const log = message => { output.textContent += '\n' + message; };
@@ -24,6 +24,7 @@ try {
   check(fish.fish.length === 48, '48 моделей рыб с исходными размерами и цветами');
   verifyInstancePlacements(data, check);
   verifyCameraFrame(player, check);
+  await verifyLocalAvatar(player, check);
   for (const mesh of [planet.terrain, planet.bark, planet.leaves, planet.grass, planet.water]) {
     log('Компиляция: ' + mesh.name);
     mesh.material.onError = (_effect, errors) => log('GLSL: ' + errors);
@@ -52,10 +53,9 @@ try {
   check(count > 0 && planet.rippleCount === count, 'Волны при входе и отсутствие волн в покое');
   planet.updateActor('check', new B.Vector3(.2,35,0), .1);
   check(planet.rippleCount === count + 1, 'Волны при движении');
-  player.toggleOverview();
   engine.runRenderLoop(() => { player.update(.016); planet.update(.016, scene.activeCamera); scene.render(); });
   window.addEventListener('resize', () => engine.resize());
-  log('\nВсе браузерные проверки пройдены. Визуально проверьте воду, берёзы и траву.');
+  log('\nВсе браузерные проверки пройдены. V — смена камеры, Tab — обзор планеты.');
 } catch (error) {
   log('FAIL · ' + (error?.message || String(error)));
   console.error(error);

@@ -2,8 +2,8 @@ import { avatar } from './scene.js';
 import { DEFAULT_AVATAR, findAvatar } from './avatar-catalog.js';
 const B = window.BABYLON;
 
-// The downloaded CC0 base has a skin but no animation clips. Pose its linked
-// transform nodes so Babylon updates the glTF skin on both CPU and GPU paths.
+// Rigged bases use procedural poses; explicitly static catalogue entries keep
+// their authored pose and use the same player transform and camera visibility.
 export class LocalAvatar {
   constructor(scene, initialId = DEFAULT_AVATAR) {
     this.scene = scene;
@@ -33,10 +33,11 @@ export class LocalAvatar {
       container = await B.LoadAssetContainerAsync(definition.url, scene);
       if (this.root.isDisposed() || generation !== this.generation) { container.dispose(); return false; }
       const skeleton = container.skeletons[0];
-      if (!skeleton) throw Error('Avatar has no skeleton');
+      const rigged = definition.rigged !== false;
+      if (rigged && !skeleton) throw Error('Avatar has no skeleton');
       const names = ['upperarm_l', 'upperarm_r', 'thigh_l', 'thigh_r', 'calf_l', 'calf_r', 'Head'];
       const joints = new Map();
-      for (const name of names) {
+      for (const name of rigged ? names : []) {
         const node = skeleton.bones.find(bone => bone.name === name)?.getTransformNode();
         if (!node?.rotationQuaternion) throw Error('Missing avatar joint: ' + name);
         const inverse = node.parent.computeWorldMatrix(true).clone().invert();
@@ -60,11 +61,11 @@ export class LocalAvatar {
         // Animated limbs may leave the tight T-pose bounds (notably in overview).
         if (mesh.skeleton) mesh.alwaysSelectAsActiveMesh = true;
       }
-      this.joints = joints;
+      this.joints = rigged ? joints : null;
       this.model = model;
       this.skeleton = skeleton;
       this.container = container;
-      this.pose(0);
+      if (this.joints) this.pose(0);
       this.id = definition.id;
       this.error = null;
       this.fallback.setEnabled(false);
@@ -100,6 +101,7 @@ export class LocalAvatar {
 
   update(dt, speed, pitch, visible) {
     this.root.setEnabled(visible);
+    if (this.model && !this.joints) return;
     if (!this.joints) {
       this.fallback.getChildMeshes().find(mesh => mesh.name === 'look-direction').rotation.x = pitch;
       return;

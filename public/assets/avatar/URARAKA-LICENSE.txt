@@ -1,0 +1,14 @@
+Uraraka Ochako
+Author: Padalab (https://sketchfab.com/padalab)
+Source: https://sketchfab.com/3d-models/uraraka-ochako-040a689bf9e443f9a97710c2264f3d57
+License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+Attribution and license copied from the supplied GLB asset.extras metadata.
+This asset is NOT covered by the Quaternius CC0 license in LICENSE.txt.
+
+Modifications: extracted the central static pose; removed the two side poses
+and decorative backdrop; compacted vertex/index buffers. Original materials
+and textures retained. No rig or animations were present or added.
+The modified model is distributed under the same CC BY-NC-SA 4.0 license.
+Reproduction: scripts/prepare-uraraka.py SOURCE.glb OUTPUT.glb

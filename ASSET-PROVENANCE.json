@@ -22,7 +22,9 @@
     "public/assets/avatar/player.glb": "8711d8ac735cf0418384fec1ebabb75d1d11fe8cb7edd2710924f1fdd991cf1b",
     "public/assets/avatar/LICENSE.txt": "c232257c8a2545520aa120cda96acb23d00a355d2e3339cba20b7ebf56f28a09",
     "public/vendor/babylonjs.loaders.min.js": "fb6e975962c8ed333e6ccefc4fe46eac9c5f989419e3347198e795b96e86c5b3",
-    "public/assets/avatar/player-female.glb": "a1925ef139cd2c2a6d5af591b5ea9b7df14ef40cbe666cda2f587a5610c4ad18"
+    "public/assets/avatar/player-female.glb": "a1925ef139cd2c2a6d5af591b5ea9b7df14ef40cbe666cda2f587a5610c4ad18",
+    "public/assets/avatar/uraraka-ochako.glb": "260ea1d80e24c3b97d732aa8247a4bc47cddd158b964251da2b6a605c1252b23",
+    "public/assets/avatar/URARAKA-LICENSE.txt": "9c654ce26c3d5da5e60e210fda5890897cc7c6313ede3e3615ba89924e80e7c0"
   },
   "instanceExport": "CPU placement matrices captured before MultiMesh upload; compatible with Godot headless dummy renderer.",
   "localAvatar": {
@@ -42,5 +44,19 @@
       "Superhero_Male_FullBody.gltf",
       "Superhero_Female_FullBody.gltf"
     ]
+  },
+  "urarakaAvatar": {
+    "source": "https://sketchfab.com/3d-models/uraraka-ochako-040a689bf9e443f9a97710c2264f3d57",
+    "author": "Padalab",
+    "license": "CC-BY-NC-SA-4.0",
+    "licenseFile": "public/assets/avatar/URARAKA-LICENSE.txt",
+    "sourceFile": "uraraka_ochako.glb (provided by user)",
+    "sourceSha256": "28f476e54697cd900b75d056e28b476cdeae98cba640ce57aa2f1650a9d9ce96",
+    "processing": [
+      "Extracted the central pose; removed two side poses and decorative backdrop without cutting triangles.",
+      "Compacted vertex/index buffers; preserved materials, embedded textures and attribution.",
+      "No skeleton or animations in the source; used as a static avatar."
+    ],
+    "reproduce": "python3 scripts/prepare-uraraka.py SOURCE.glb public/assets/avatar/uraraka-ochako.glb"
   }
 }

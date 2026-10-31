@@ -266,10 +266,10 @@ export class AccountPanel {
     text('Ваш образ в мире', 48, 195, 30, '#adc8d2');
     text('Выбор сохранится в этом браузере.', 48, 240, 26, '#adc8d2');
     AVATARS.forEach((avatar, index) => {
-      const y = 310 + index * 170, selected = avatar.id === this.draft;
-      button('avatar-' + avatar.id, `${selected ? '●' : '○'}  ${avatar.name}`, 48, y, 928, 140,
+      const y = 285 + index * 135, selected = avatar.id === this.draft;
+      button('avatar-' + avatar.id, `${selected ? '●' : '○'}  ${avatar.name}`, 48, y, 928, 118,
         () => this.chooseAvatar(avatar.id), selected);
-      text(avatar.description, 88, y + 115, 24, selected ? '#254e4d' : '#adc8d2');
+      text(avatar.description, 88, y + 100, 24, selected ? '#254e4d' : '#adc8d2');
     });
     const message = $('settings-status').textContent;
     text(message.slice(0, 60), 48, 735, 25, '#ffd1b8');

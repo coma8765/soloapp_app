@@ -3,6 +3,8 @@ export const AVATARS = Object.freeze([
     height: 1.81958638317883, floor: -.009509669616818428 },
   { id: 'female', name: 'Атлетка', description: 'Женский аватар', url: '/assets/avatar/player-female.glb',
     height: 1.7750510573387146, floor: -.008407175540924072 },
+  { id: 'uraraka', name: 'Очако Урарака', description: 'Статическая поза · Padalab · CC BY-NC-SA', url: '/assets/avatar/uraraka-ochako.glb',
+    height: 1.8824622025713325, floor: -.0009810319170355797, rigged: false },
 ]);
 export const DEFAULT_AVATAR = AVATARS[0].id;
 export const AVATAR_STORAGE_KEY = 'microplanet.avatar.v1';

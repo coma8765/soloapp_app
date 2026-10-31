@@ -79,6 +79,26 @@ try {
     'Ошибка сохранения показана в 3D-настройках, модель работает');
   panel.closeSettings(); panel.preferences = preferences;
 
+  panel.openSettings(); panel.chooseAvatar('uraraka'); await panel.applySettings();
+  check(avatar.id === 'uraraka' && !avatar.skeleton && !avatar.joints && scene.skeletons.length === 0,
+    'Урарака загружается как статический аватар и освобождает предыдущий скелет');
+  avatar.update(.1, 3, .4, true);
+  scene.render();
+  const bounds = avatar.model.getHierarchyBoundingVectors(true);
+  check(Math.abs(bounds.min.y) < .001 && Math.abs(bounds.max.y - 1.8) < .001 && bounds.max.x - bounds.min.x < 1,
+    'Одна фигура Урараки стоит на земле, нормализована до 1,8 м, фон и боковые позы удалены');
+  for (const mesh of avatar.container.meshes.filter(mesh => mesh.getTotalVertices() > 0)) {
+    await mesh.material.forceCompilationAsync(mesh);
+    check(mesh.material.getActiveTextures().every(texture => texture.isReady()), 'Материал и текстуры Урараки: ' + mesh.name);
+  }
+  const restoredStatic = new LocalAvatar(scene, new AvatarPreferences(() => storage).id);
+  check(await restoredStatic.ready && restoredStatic.id === 'uraraka', 'Выбор Урараки сохраняется и восстанавливается');
+  restoredStatic.root.dispose();
+  check(await avatar.select('male') && avatar.joints && scene.skeletons.length === 1,
+    'После статической модели скелетный аватар снова получает анимацию');
+  check(await avatar.select('uraraka') && !avatar.joints && scene.skeletons.length === 0,
+    'Повторное переключение на Урараку очищает скелет и процедурную позу');
+
   // Exercise the real XR ray conversion and pick routing with synthetic poses.
   panel.xr = true; panel.sync();
   const origin = new B.TransformNode('test-xr-origin', scene);
@@ -98,14 +118,16 @@ try {
   check(panel.hover === 'settings-gear', 'VR-луч находит шестерёнку при закрытой панели');
   panel.selectXR({ frame, inputSource: source }, {}, origin);
   check(panel.settingsOpen && panel.mesh === sharedMesh, 'Триггер на шестерёнке открывает тот же компонент настроек');
-  const row = panel.targets.find(item => item.id === 'avatar-male');
+  panel.chooseAvatar('male'); panel.sync();
+  const row = panel.targets.find(item => item.id === 'avatar-uraraka');
+  check(row.y + row.h < 735, 'Третий аватар помещается в 3D-панель и не перекрывает статус или кнопки');
   const localTarget = new B.TransformNode('test-settings-target', scene);
   localTarget.parent = panel.mesh;
   localTarget.position.set(((row.x + row.w/2)/1024 - .5)*1.25,
     (.5 - (row.y + row.h/2)/1120)*1.25*1120/1024, 0);
   localTarget.computeWorldMatrix(true); target = localTarget;
   panel.selectXR({ frame, inputSource: source }, {}, origin);
-  check(panel.draft === 'male', 'VR-луч выбирает пункт списка аватаров');
+  check(panel.draft === 'uraraka', 'VR-луч выбирает третий пункт списка аватаров');
   // B must still work when settings have disabled locomotion.
   const xr = { active: true, player, authPanel: panel, aDown: false, bDown: false,
     helper: { sessionManager: { session: { visibilityState: 'visible', inputSources: [

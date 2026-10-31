@@ -34,7 +34,7 @@ export class LakeProfessors {
         for (const mesh of model.getChildMeshes()) mesh.isPickable = false;
         const sign = B.MeshBuilder.CreatePlane('professor-sign-' + site.id, this.recorder ? { width: 2.8, height: 2.1 } : { width: 2.4, height: .8 }, this.scene);
         sign.position.copyFrom(root.position.add(vec(site.up).scale(this.recorder ? 3.1 : 2.45)));
-        sign.rotationQuaternion = B.Quaternion.Identity(); sign.isPickable = !!this.recorder;
+        sign.rotationQuaternion = B.Quaternion.Identity(); sign.isPickable = false;
         const texture = new B.DynamicTexture('professor-sign-texture-' + site.id, { width: 1024, height: this.recorder ? 768 : 342 }, this.scene, true);
         texture.hasAlpha = true;
         const material = new B.StandardMaterial('professor-sign-material-' + site.id, this.scene);
@@ -75,7 +75,7 @@ export class LakeProfessors {
   drawSpeech(guide) {
     const recorder = this.recorder, active = this.nearest === guide.id;
     const text = recorder.record(guide.id).text;
-    const status = active ? recorder.error || (recorder.pending ? 'Разрешите микрофон…' : recorder.enabled ? '● Слушаю вас · локальный Whisper' : 'Здравствуйте! Могу записать ваши слова.') : 'Подойдите, чтобы поговорить';
+    const status = active ? recorder.error || (recorder.pending ? 'Подключаю голосовой чат…' : recorder.enabled ? '● Слушаю голосовой чат · локальный Whisper' : 'Включите микрофон голосового чата — я запишу ваши слова.') : 'Подойдите, чтобы поговорить';
     const state = JSON.stringify([text, status, recorder.enabled, recorder.pending, active, recorder.tracks.size]);
     if (guide.state === state) return; guide.state = state;
     const c = guide.texture.getContext(); c.clearRect(0,0,1024,768);
@@ -93,20 +93,10 @@ export class LakeProfessors {
     wrap(status,940).slice(0,2).forEach((line,i)=>c.fillText(line,42,130+i*36));
     c.font = '32px sans-serif'; c.fillStyle = '#f1f8f2';
     wrap(text || 'Здесь появятся ваши слова. Аудио не сохраняется на диск.',940).slice(-7).forEach((line,i)=>c.fillText(line,42,230+i*43));
-    c.fillStyle = active ? '#c7ebad' : '#47646b'; c.beginPath(); c.roundRect(35,584,954,80,18); c.fill();
-    c.fillStyle = active ? '#193d39' : '#d2e0dd'; c.textAlign = 'center'; c.font = '32px sans-serif';
-    c.fillText(active ? recorder.enabled || recorder.pending ? 'Остановить запись · P' : 'Начать запись · P / луч + триггер' : 'Подойдите ближе',512,635);
+    c.fillStyle = '#c5e9d1'; c.textAlign = 'center'; c.font = '28px sans-serif';
+    c.fillText('Запись включается вместе с микрофоном голосового чата',512,635);
     c.font = '22px sans-serif'; c.fillStyle = '#b4cbd0'; c.fillText('Только ваша речь · Professor Einstein / klava88 · CC BY 4.0',512,725);
     guide.texture.update();
-  }
-  isInteractiveMesh(mesh) {
-    return !!this.recorder && this.visible && this.guides.some(g => g.sign === mesh && this.nearest === g.id);
-  }
-  targetAt(pick) {
-    if (!pick?.hit || !this.isInteractiveMesh(pick.pickedMesh)) return null;
-    const uv = pick.getTextureCoordinates();
-    if (!uv || (1-uv.y)*768 < 584 || (1-uv.y)*768 > 664) return null;
-    return { id: 'professor-record-' + this.nearest, action: () => { void this.recorder.toggle(); } };
   }
   update(dt, player, camera, visible = true) {
     if (visible !== this.visible) this.setVisible(visible);
